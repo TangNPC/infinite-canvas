@@ -292,6 +292,65 @@ https://你的域名 -> 127.0.0.1:13000
 
 ## 常见问题
 
+### Docker 构建 Go 后端依赖超时
+
+如果构建卡在 `RUN go build -o /server .`，并看到类似：
+
+```text
+Get "https://proxy.golang.org/...": i/o timeout
+```
+
+说明服务器访问 Go 官方模块代理不稳定。当前 Dockerfile 已设置：
+
+```dockerfile
+ENV GOPROXY=https://goproxy.cn,direct
+```
+
+拉取最新代码后重新构建：
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+如果仍然超时，可以在服务器上先测试：
+
+```bash
+docker run --rm golang:1.25-alpine sh -c 'GOPROXY=https://goproxy.cn,direct go env GOPROXY'
+```
+
+### Docker Compose 提示变量未设置
+
+如果执行 `docker compose up -d --build` 时出现：
+
+```text
+WARN The "Nf4" variable is not set. Defaulting to a blank string.
+```
+
+通常是 `.env` 中的密码、JWT Secret 或 API Key 含有 `$`，Docker Compose 会把 `$xxx` 当作环境变量插值。
+
+解决方式二选一：
+
+1. 用单引号包住包含 `$` 的值：
+
+```env
+JWT_SECRET='abc$Nf4$Kr1'
+ADMIN_PASSWORD='pass$Nf4'
+```
+
+2. 或把 `$` 写成 `$$`：
+
+```env
+JWT_SECRET=abc$$Nf4$$Kr1
+ADMIN_PASSWORD=pass$$Nf4
+```
+
+修改后重新执行：
+
+```bash
+docker compose up -d --build
+```
+
 ### 为什么不能继续用原作者镜像
 
 原作者镜像只包含原作者仓库构建出的代码，不包含你在 `HuFakai/infinite-canvas` 中做的二次开发。你的部署必须来自当前源码构建，或者来自你自己发布的镜像。
