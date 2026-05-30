@@ -216,6 +216,35 @@ services:
 - 开启 HTTPS。
 - 定期备份 `.env` 和 `data`。
 
+### 1Panel 反向代理配置
+
+如果应用和 OpenResty/1Panel 在同一台服务器，代理地址不要填写公网 IP，直接走本机回环地址：
+
+```text
+域名：image.example.com
+端口：80
+代理协议：HTTP
+代理地址：127.0.0.1:13000
+```
+
+注意：
+
+- 1Panel 表单左侧已经选择了 `http` 时，右侧地址只填 `127.0.0.1:13000`，不要再填写 `http://127.0.0.1:13000`。
+- 如果填写成 `http://115.190.90.61:13000`，OpenResty 可能生成 `invalid port in upstream`，站点会创建失败。
+- 反向代理只代理到前端 `13000`，不要代理到后端 `18080`。后端由 Next.js 通过 `/api/*` 内部转发。
+
+服务器上可以用下面命令确认容器和端口是否正常：
+
+```bash
+docker ps --filter name=infinite-canvas
+docker logs --tail=80 infinite-canvas
+curl -I http://127.0.0.1:13000/
+curl http://127.0.0.1:13000/api/health
+ss -lntp | grep -E '13000|18080'
+```
+
+如果 `127.0.0.1:13000` 能访问，但公网 `服务器IP:13000` 不能访问，优先检查云厂商安全组、1Panel 防火墙和系统防火墙。生产环境更推荐只开放 `80/443`，由域名反向代理访问，不必长期开放 `13000`。
+
 ## 自定义前后端接口
 
 本项目分为 Next.js 前端和 Go 后端。默认部署时：
