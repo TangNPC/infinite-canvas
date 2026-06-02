@@ -1809,8 +1809,10 @@ function InfiniteCanvasPage() {
                                 const image = referenceImages.length
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt).then((items) => items[0]);
-                                const uploaded = await uploadImage(image.dataUrl);
-                                const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
+                                
+                                // 1. 乐观渲染阶段
+                                const meta = await readImageMeta(image.dataUrl).catch(() => ({ width: 1024, height: 1024, mimeType: "image/png" }));
+                                const imageSize = fitNodeSize(meta.width, meta.height, imageConfig.width, imageConfig.height);
                                 setNodes((prev) => {
                                     const root = prev.find((node) => node.id === rootId);
                                     return prev.map((node) => {
@@ -1822,7 +1824,15 @@ function InfiniteCanvasPage() {
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                                 width: imageSize.width,
                                                 height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), primaryImageId: targetId, durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) },
+                                                metadata: { 
+                                                    ...node.metadata, 
+                                                    content: image.dataUrl,
+                                                    width: meta.width,
+                                                    height: meta.height,
+                                                    mimeType: meta.mimeType,
+                                                    primaryImageId: targetId, 
+                                                    durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) 
+                                                },
                                             };
                                         if (node.id === targetId)
                                             return {
@@ -1830,10 +1840,51 @@ function InfiniteCanvasPage() {
                                                 position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
                                                 width: imageSize.width,
                                                 height: imageSize.height,
-                                                metadata: { ...node.metadata, ...imageMetadata(uploaded), durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) },
+                                                metadata: { 
+                                                    ...node.metadata, 
+                                                    content: image.dataUrl,
+                                                    width: meta.width,
+                                                    height: meta.height,
+                                                    mimeType: meta.mimeType,
+                                                    durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) 
+                                                },
                                             };
                                         return node;
                                     });
+                                });
+
+                                // 2. 后台静默异步持久化阶段
+                                void uploadImage(image.dataUrl).then((uploaded) => {
+                                    setNodes((prev) =>
+                                        prev.map((node) => {
+                                            if (node.id !== targetId && node.id !== rootId) return node;
+                                            if (node.id === rootId && node.metadata?.primaryImageId === targetId) {
+                                                return {
+                                                    ...node,
+                                                    metadata: {
+                                                        ...node.metadata,
+                                                        content: uploaded.url,
+                                                        storageKey: uploaded.storageKey,
+                                                        mimeType: uploaded.mimeType || node.metadata?.mimeType || "image/png",
+                                                    },
+                                                };
+                                            }
+                                            if (node.id === targetId) {
+                                                return {
+                                                    ...node,
+                                                    metadata: {
+                                                        ...node.metadata,
+                                                        content: uploaded.url,
+                                                        storageKey: uploaded.storageKey,
+                                                        mimeType: uploaded.mimeType || node.metadata?.mimeType || "image/png",
+                                                    },
+                                                };
+                                            }
+                                            return node;
+                                        })
+                                    );
+                                }).catch((err) => {
+                                    console.warn("后台图片持久化失败，自动降级为原始外链:", err);
                                 });
                                 hasSuccess = true;
                                 if (isConfigNode)
@@ -2076,9 +2127,11 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages ? await requestEdit(generationConfig, prompt, retryReferenceImages || []).then((items) => items[0]) : await requestGeneration(generationConfig, prompt).then((items) => items[0]);
-                const uploadedImage = await uploadImage(image.dataUrl);
+                
+                // 1. 乐观渲染阶段
+                const meta = await readImageMeta(image.dataUrl).catch(() => ({ width: 1024, height: 1024, mimeType: "image/png" }));
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-                const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
+                const imageSize = fitNodeSize(meta.width, meta.height, imageConfig.width, imageConfig.height);
                 const generationMetadata = savedImageMetadata?.generationType
                     ? {
                           generationType: savedImageMetadata.generationType,
@@ -2092,6 +2145,7 @@ function InfiniteCanvasPage() {
                           references: savedImageMetadata.references,
                       }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryReferenceImages || []);
+                
                 setNodes((prev) =>
                     prev.map((item) =>
                         item.id === node.id
@@ -2100,11 +2154,41 @@ function InfiniteCanvasPage() {
                                   type: CanvasNodeType.Image,
                                   width: imageSize.width,
                                   height: imageSize.height,
-                                  metadata: { ...item.metadata, ...imageMetadata(uploadedImage), prompt, durationMs: Date.now() - retryStartedAt, ...generationMetadata },
+                                  metadata: { 
+                                      ...item.metadata, 
+                                      content: image.dataUrl,
+                                      width: meta.width,
+                                      height: meta.height,
+                                      mimeType: meta.mimeType,
+                                      prompt, 
+                                      durationMs: Date.now() - retryStartedAt, 
+                                      ...generationMetadata 
+                                  },
                               }
                             : item,
                     ),
                 );
+
+                // 2. 后台静默异步持久化阶段
+                void uploadImage(image.dataUrl).then((uploaded) => {
+                    setNodes((prev) =>
+                        prev.map((item) =>
+                            item.id === node.id
+                                ? {
+                                      ...item,
+                                      metadata: {
+                                          ...item.metadata,
+                                          content: uploaded.url,
+                                          storageKey: uploaded.storageKey,
+                                          mimeType: uploaded.mimeType || item.metadata?.mimeType || "image/png",
+                                      },
+                                  }
+                                : item,
+                        ),
+                    );
+                }).catch((err) => {
+                    console.warn("后台图片持久化失败，自动降级为原始外链:", err);
+                });
             } catch (error) {
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);

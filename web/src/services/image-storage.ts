@@ -47,7 +47,22 @@ function getProxyUrl(url: string): string {
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
     const url = typeof input === "string" ? getProxyUrl(input) : input;
-    const blob = typeof url === "string" ? await (await fetch(url)).blob() : url;
+    let blob: Blob;
+    if (typeof url === "string") {
+        const response = await fetch(url);
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null) as { msg?: string } | null;
+            throw new Error(payload?.msg || `代理图片拉取失败：${response.status}`);
+        }
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+            const payload = await response.json().catch(() => null) as { msg?: string } | null;
+            throw new Error(payload?.msg || "代理图片下载失败");
+        }
+        blob = await response.blob();
+    } else {
+        blob = url;
+    }
     const serverUpload = await maybeUploadImageToServer(blob);
     if (serverUpload) return serverUpload;
     const storageKey = `image:${nanoid()}`;

@@ -342,7 +342,7 @@ func ProxyImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		Fail(w, "代理图片请求失败: "+resp.Status)
+		FailWithStatus(w, http.StatusBadGateway, "代理图片请求失败: "+resp.Status)
 		return
 	}
 	contentType := resp.Header.Get("Content-Type")
