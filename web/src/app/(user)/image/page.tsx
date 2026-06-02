@@ -157,6 +157,7 @@ export default function ImagePage() {
     const workflowButtonRef = useRef<HTMLButtonElement>(null);
     const workflowButtonDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
     const accountHistorySyncEnabledRef = useRef(false);
+    const saveLogChainRef = useRef<Promise<void>>(Promise.resolve());
 
     const model = effectiveConfig.imageModel || effectiveConfig.model;
     const canGenerate = Boolean(prompt.trim());
@@ -369,48 +370,84 @@ export default function ImagePage() {
         const pendingTasks = taskIds.map((id) => createPendingResult(id, snapshot));
         setResults((value) => [...pendingTasks, ...value]);
         setNow(Date.now());
-        const batchStartedAt = performance.now();
 
-        const tasks = taskIds.map((id) => runGenerationTask(id, snapshot).then((image) => ({ resultId: id, image })));
+        const tasks = taskIds.map(async (id, index) => {
+            const taskStartedAt = performance.now();
+            try {
+                const image = await runGenerationTask(id, {
+                    ...snapshot,
+                    requestConfig: {
+                        ...snapshot.requestConfig,
+                        seedIndex: index,
+                        seedCount: taskCount,
+                    } as any,
+                });
 
-        const result = await Promise.allSettled(tasks);
-        const successItems = result.filter((item): item is PromiseFulfilledResult<{ resultId: string; image: GeneratedImage }> => item.status === "fulfilled").map((item) => item.value);
-        const successCount = successItems.length;
-        const failCount = taskCount - successCount;
-        const failed = result.find((item): item is PromiseRejectedResult => item.status === "rejected");
-        const errors = result.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => errorMessage(item.reason));
-        const errorDetails = result.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => errorDetail(item.reason));
+                if (!image) {
+                    throw new Error("接口没有返回图片");
+                }
 
-        try {
-            const logImages = await Promise.all(
-                successItems.map(async ({ resultId, image }) => {
-                    const stored = await uploadImage(image.dataUrl);
-                    const durableImage = { ...image, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
-                    setResults((value) => updateResult(value, resultId, { image: durableImage }));
-                    return durableImage;
-                }),
-            );
-            await saveLog(
-                buildLog({
-                    prompt: snapshot.text,
-                    model: snapshot.displayConfig.imageModel || snapshot.displayConfig.model,
-                    config: snapshot.displayConfig,
-                    references: snapshot.references,
-                    durationMs: performance.now() - batchStartedAt,
-                    successCount,
-                    failCount,
-                    status: successCount ? "成功" : "失败",
-                    images: logImages,
-                    errors,
-                    errorDetails,
-                    categoryIds: activeResultCategoryId ? [activeResultCategoryId] : [],
-                }),
-            );
-            setResults((value) => value.filter((item) => !taskIds.includes(item.id)));
-            successCount ? message.success("图片已生成") : message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "保存生成记录失败");
-        }
+                // 立即存储图片
+                const stored = await uploadImage(image.dataUrl);
+                const durableImage = { 
+                    ...image, 
+                    storageKey: stored.storageKey, 
+                    width: stored.width, 
+                    height: stored.height, 
+                    bytes: stored.bytes, 
+                    mimeType: stored.mimeType 
+                };
+                
+                // 更新结果状态
+                setResults((value) => updateResult(value, id, { image: durableImage }));
+                
+                // 立即保存单张成功日志
+                await saveLog(
+                    buildLog({
+                        prompt: snapshot.text,
+                        model: snapshot.displayConfig.imageModel || snapshot.displayConfig.model,
+                        config: { ...snapshot.displayConfig, count: "1" },
+                        references: snapshot.references,
+                        durationMs: performance.now() - taskStartedAt,
+                        successCount: 1,
+                        failCount: 0,
+                        status: "成功",
+                        images: [durableImage],
+                        errors: [],
+                        errorDetails: [],
+                        categoryIds: activeResultCategoryId ? [activeResultCategoryId] : [],
+                    }),
+                );
+                message.success("图片已生成");
+            } catch (err) {
+                const errMsg = errorMessage(err);
+                const errDetail = errorDetail(err);
+                
+                // 立即保存单张失败日志
+                await saveLog(
+                    buildLog({
+                        prompt: snapshot.text,
+                        model: snapshot.displayConfig.imageModel || snapshot.displayConfig.model,
+                        config: { ...snapshot.displayConfig, count: "1" },
+                        references: snapshot.references,
+                        durationMs: performance.now() - taskStartedAt,
+                        successCount: 0,
+                        failCount: 1,
+                        status: "失败",
+                        images: [],
+                        errors: [errMsg],
+                        errorDetails: [errDetail],
+                        categoryIds: activeResultCategoryId ? [activeResultCategoryId] : [],
+                    }),
+                );
+                message.error(errMsg || "生成失败");
+            } finally {
+                // 任务完成，从进行中状态移除
+                setResults((value) => value.filter((item) => item.id !== id));
+            }
+        });
+
+        await Promise.allSettled(tasks);
     };
 
     const downloadImage = async (image: GeneratedImage, index: number) => {
@@ -546,12 +583,22 @@ export default function ImagePage() {
     };
 
     const saveLog = async (log: GenerationLog) => {
-        const storedLogs = await readStoredLogs();
-        const nextLogs = [log, ...storedLogs.filter((item) => item.id !== log.id)];
-        setLogs(nextLogs);
-        await logStore.setItem(log.id, serializeLog(log));
-        await persistImageHistory(nextLogs, categories);
-        await refreshLogs();
+        const prevChain = saveLogChainRef.current;
+        const nextChain = (async () => {
+            try {
+                await prevChain;
+            } catch {
+                // Ignore previous errors so the chain doesn't break permanently
+            }
+            const storedLogs = await readStoredLogs();
+            const nextLogs = [log, ...storedLogs.filter((item) => item.id !== log.id)];
+            setLogs(nextLogs);
+            await logStore.setItem(log.id, serializeLog(log));
+            await persistImageHistory(nextLogs, categories);
+            await refreshLogs();
+        })();
+        saveLogChainRef.current = nextChain;
+        await nextChain;
     };
 
     const refreshLogs = async () => setLogs(await readStoredLogs());

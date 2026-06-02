@@ -26,7 +26,7 @@ type ResponsesApiResponse = {
     msg?: string;
 };
 
-type GeneratedImage = { id: string; dataUrl: string };
+type GeneratedImage = { id: string; dataUrl: string; seed?: number };
 
 type ParsedImageResponse = {
     images: GeneratedImage[];
@@ -528,8 +528,49 @@ function withSystemMessage(config: AiConfig, messages: ChatCompletionMessage[]) 
     return systemPrompt ? [{ role: "system" as const, content: systemPrompt }, ...messages] : messages;
 }
 
-async function requestImageGenerationSingle(config: AiConfig, prompt: string, params: ImageRequestParams): Promise<GeneratedImage[]> {
+async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, params: ImageRequestParams): Promise<GeneratedImage[]> {
     const mime = MIME_MAP[params.outputFormat];
+
+    // 针对 Agnes 渠道文生图模型定制精简 Payload，并强制注入高离散度种子
+    if (isAgnesImageModel(config.model)) {
+        const seedValue = generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed);
+        const body: Record<string, unknown> = {
+            model: config.model,
+            prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
+            extra_body: {
+                seed: seedValue,
+            },
+        };
+        if (params.size) body.size = params.size;
+
+        return requestAndParseImages(
+            config,
+            "/images/generations",
+            body,
+            params.timeoutSeconds,
+            () =>
+                requestWithTransientRetry(() =>
+                    withTimeout(params.timeoutSeconds, (signal) =>
+                        fetch(aiApiUrl(config, "/images/generations"), {
+                            method: "POST",
+                            headers: aiHeaders(config, "application/json"),
+                            body: JSON.stringify(body),
+                            signal,
+                        }),
+                    ),
+                ),
+            async (response) => {
+                if (config.streamImages && isEventStreamResponse(response)) {
+                    const images = await parseImagesStreamResponse(response, mime);
+                    return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
+                }
+                const payload = (await response.json()) as ImageApiResponse;
+                const images = parseImagePayload(payload, mime);
+                return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: stringifyLogPayload(payload) };
+            },
+        );
+    }
+
     const body: Record<string, unknown> = {
         model: config.model,
         prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
@@ -710,7 +751,7 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
     }
 }
 
-async function requestImages(config: AiConfig, prompt: string, references: ReferenceImage[]): Promise<GeneratedImage[]> {
+async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[]): Promise<GeneratedImage[]> {
     const params = createImageRequestParams(config);
     const inputImageDataUrls = references.length ? await Promise.all(references.map((image) => imageToDataUrl(image))) : [];
     const useConcurrentSingleRequests = config.apiMode === "responses" || config.codexCli || config.streamImages;
@@ -728,7 +769,7 @@ async function requestImages(config: AiConfig, prompt: string, references: Refer
     return references.length ? requestImageEditSingle(config, prompt, references, params) : requestImageGenerationSingle(config, prompt, params);
 }
 
-export async function requestGeneration(config: AiConfig, prompt: string) {
+export async function requestGeneration(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string) {
     try {
         const images = await requestImages(config, prompt, []);
         refreshRemoteUser(config);
@@ -739,7 +780,7 @@ export async function requestGeneration(config: AiConfig, prompt: string) {
     }
 }
 
-export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[]) {
+export async function requestEdit(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[]) {
     try {
         const images = await requestImages(config, prompt, references);
         refreshRemoteUser(config);
@@ -830,10 +871,45 @@ export async function fetchImageModels(config: AiConfig) {
         throw new Error(readAxiosError(error, "读取模型失败"));
     }
 }
-
 function isAgnesImageModel(model: string) {
     const m = model.toLowerCase().replace(/[\s_]+/g, "-");
-    return m === "agnes-image-2.1-flash" || m === "agnes-image-2.0-flash";
+    return m.startsWith("agnes-image") || m.startsWith("agens-image");
+}
+function generateDiscreteSeed(seedIndex?: number, seedCount?: number, customSeed?: string): number {
+    if (customSeed && !isNaN(Number(customSeed))) {
+        const baseSeed = Math.floor(Number(customSeed));
+        if (baseSeed >= 0) {
+            if (typeof seedIndex === "number" && seedIndex >= 0) {
+                return (baseSeed + seedIndex) % 2147483648;
+            }
+            return baseSeed;
+        }
+    }
+
+    let randVal = 0;
+    if (typeof window !== "undefined" && window.crypto && window.crypto.getRandomValues) {
+        const array = new Uint32Array(1);
+        window.crypto.getRandomValues(array);
+        randVal = array[0];
+    } else {
+        // 降级使用微秒级时空杂凑
+        const timeSalt = Date.now() * 1000 + Math.floor(performance.now() * 1000) % 1000;
+        const mathRand = Math.random() * 1000000;
+        randVal = timeSalt ^ mathRand;
+    }
+
+    if (typeof seedIndex === "number" && seedIndex >= 0) {
+        const chunks = typeof seedCount === "number" && seedCount > 0 ? Math.floor(seedCount) : 100;
+        const index = Math.floor(seedIndex) % chunks;
+        const chunkSize = Math.floor(2147483647 / chunks);
+        const minVal = index * chunkSize + 1;
+        const maxVal = (index + 1) * chunkSize;
+        const range = maxVal - minVal;
+        return (randVal % range) + minVal;
+    }
+
+    // 默认依然在全域进行真随机
+    return (randVal % 2147483647) + 1;
 }
 
 function publicHttpUrl(value?: string) {
@@ -848,7 +924,7 @@ function publicHttpUrl(value?: string) {
     }
 }
 
-async function requestAgnesImageEdit(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<GeneratedImage[]> {
+async function requestAgnesImageEdit(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<GeneratedImage[]> {
     const mime = MIME_MAP[params.outputFormat];
 
     // 获取所有参考图的公共 HTTP 链接或降级为 base64 数组，完美对齐 extra_body.image
@@ -863,12 +939,13 @@ async function requestAgnesImageEdit(config: AiConfig, prompt: string, reference
         })
     );
 
+    const seedValue = generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed);
     const body: Record<string, unknown> = {
         model: config.model,
         prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
         extra_body: {
             image: imageUrls, // 👈 核心对齐：官方文档参考图参数 extra_body.image 数组
-            seed: Math.floor(Math.random() * 2147483647) + 1, // 👈 增加随机种子，打破并发网关缓存，并赋予 Agnes 图像生成完美的随机多样性
+            seed: seedValue, // 👈 采用带分区锁定的高离散真随机种子发生器
         },
     };
     if (params.size) body.size = params.size; // 👈 官方支持参数
@@ -893,10 +970,11 @@ async function requestAgnesImageEdit(config: AiConfig, prompt: string, reference
         async (response) => {
             if (config.streamImages && isEventStreamResponse(response)) {
                 const images = await parseImagesStreamResponse(response, mime);
-                return { images, responseBody: summarizeGeneratedImages(images, "event-stream") };
+                return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
             }
             const payload = (await response.json()) as ImageApiResponse;
-            return { images: parseImagePayload(payload, mime), responseBody: stringifyLogPayload(payload) };
+            const images = parseImagePayload(payload, mime);
+            return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: stringifyLogPayload(payload) };
         },
     );
 }

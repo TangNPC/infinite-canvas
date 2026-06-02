@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Compass, FileText, Home, ImageIcon, ImagePlus, Images, List, Maximize2, Menu, MessageSquare, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video } from "lucide-react";
+import { Compass, FileText, Home, ImageIcon, ImagePlus, Images, List, Maximize2, Menu, MessageSquare, Plus, Redo2, Settings2, Trash2, Undo2, Upload, Video, ChevronLeft, ChevronRight } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
@@ -12,7 +12,7 @@ import { defaultConfig, type AiConfig, useConfigStore, useEffectiveConfig } from
 import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
-import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { formatBytes, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -273,6 +273,10 @@ function InfiniteCanvasPage() {
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
+    const [previewZoom, setPreviewZoom] = useState<number>(1);
+    const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isImageDragging, setIsImageDragging] = useState<boolean>(false);
+    const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const [activeTool, setActiveTool] = useState<"hand" | "select">("hand");
     const [assistantCollapsed, setAssistantCollapsed] = useState(true);
     const [assistantMounted, setAssistantMounted] = useState(false);
@@ -310,6 +314,69 @@ function InfiniteCanvasPage() {
         },
         [cleanupAssetImages],
     );
+
+    const getBatchGroupNodes = useCallback((activeNode: CanvasNodeData | null) => {
+        if (!activeNode) return [];
+        const rootId = activeNode.metadata?.batchRootId || (activeNode.metadata?.isBatchRoot ? activeNode.id : null);
+        if (!rootId) return [activeNode];
+        return nodes.filter(
+            (n) =>
+                n.metadata?.batchRootId === rootId &&
+                n.type === CanvasNodeType.Image &&
+                n.metadata?.content
+        );
+    }, [nodes]);
+
+    useEffect(() => {
+        if (!previewNodeId) return;
+
+        const handlePreviewKeyDown = (event: KeyboardEvent) => {
+            const previewNode = previewNodeId ? nodesRef.current.find((n) => n.id === previewNodeId) : null;
+            if (!previewNode) return;
+
+            const group = getBatchGroupNodes(previewNode);
+            if (group.length <= 1) {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    setPreviewNodeId(null);
+                }
+                return;
+            }
+
+            const currentIndex = group.findIndex((n) => n.id === previewNodeId);
+
+            if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                if (currentIndex > 0) {
+                    setPreviewNodeId(group[currentIndex - 1].id);
+                }
+            } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                if (currentIndex < group.length - 1) {
+                    setPreviewNodeId(group[currentIndex + 1].id);
+                }
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                setPreviewNodeId(null);
+            }
+        };
+
+        window.addEventListener("keydown", handlePreviewKeyDown);
+        return () => window.removeEventListener("keydown", handlePreviewKeyDown);
+    }, [previewNodeId, getBatchGroupNodes]);
+
+    useEffect(() => {
+        setPreviewZoom(1);
+        setPanOffset({ x: 0, y: 0 });
+        setIsImageDragging(false);
+    }, [previewNodeId]);
+
+    useEffect(() => {
+        if (previewZoom <= 1) {
+            setPanOffset({ x: 0, y: 0 });
+            setIsImageDragging(false);
+        }
+    }, [previewZoom]);
 
     useEffect(() => {
         if (!hydrated) return;
@@ -657,6 +724,15 @@ function InfiniteCanvasPage() {
             nodesRef.current.forEach((node) => {
                 if (ids.has(node.id)) node.metadata?.batchChildIds?.forEach((childId) => allIds.add(childId));
             });
+            // 自动级联删除：如果一个组卡片（batch root）的所有子图片都被删除了，则该组卡片本身也应该被删除
+            nodesRef.current.forEach((node) => {
+                if (node.metadata?.isBatchRoot && node.metadata?.batchChildIds) {
+                    const allChildrenDeleted = node.metadata.batchChildIds.every((childId) => allIds.has(childId));
+                    if (allChildrenDeleted) {
+                        allIds.add(node.id);
+                    }
+                }
+            });
             const removedNodes = nodesRef.current.filter((node) => allIds.has(node.id));
             const remainingNodes = nodesRef.current.filter((node) => !allIds.has(node.id));
             const removedKeys = collectImageStorageKeys(removedNodes);
@@ -677,6 +753,7 @@ function InfiniteCanvasPage() {
                             batchChildIds: childIds,
                             primaryImageId,
                             content: primaryNode?.metadata?.content || node.metadata.content,
+                            storageKey: primaryNode?.metadata?.storageKey || node.metadata.storageKey,
                             naturalWidth: primaryNode?.metadata?.naturalWidth || node.metadata.naturalWidth,
                             naturalHeight: primaryNode?.metadata?.naturalHeight || node.metadata.naturalHeight,
                         },
@@ -1804,11 +1881,11 @@ function InfiniteCanvasPage() {
                     let hasSuccess = false;
                     let hasFailure = false;
                     await Promise.all(
-                        targetIds.map(async (targetId) => {
+                        targetIds.map(async (targetId, index) => {
                             try {
                                 const image = referenceImages.length
-                                    ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages).then((items) => items[0])
-                                    : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt).then((items) => items[0]);
+                                    ? await requestEdit({ ...generationConfig, count: "1", seedIndex: index, seedCount: targetIds.length }, effectivePrompt, referenceImages).then((items) => items[0])
+                                    : await requestGeneration({ ...generationConfig, count: "1", seedIndex: index, seedCount: targetIds.length }, effectivePrompt).then((items) => items[0]);
                                 
                                 // 1. 乐观渲染阶段
                                 const meta = await readImageMeta(image.dataUrl).catch(() => ({ width: 1024, height: 1024, mimeType: "image/png" }));
@@ -1826,11 +1903,13 @@ function InfiniteCanvasPage() {
                                                 height: imageSize.height,
                                                 metadata: { 
                                                     ...node.metadata, 
+                                                    status: NODE_STATUS_SUCCESS,
                                                     content: image.dataUrl,
                                                     width: meta.width,
                                                     height: meta.height,
                                                     mimeType: meta.mimeType,
                                                     primaryImageId: targetId, 
+                                                    seed: image.seed,
                                                     durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) 
                                                 },
                                             };
@@ -1842,10 +1921,12 @@ function InfiniteCanvasPage() {
                                                 height: imageSize.height,
                                                 metadata: { 
                                                     ...node.metadata, 
+                                                    status: NODE_STATUS_SUCCESS,
                                                     content: image.dataUrl,
                                                     width: meta.width,
                                                     height: meta.height,
                                                     mimeType: meta.mimeType,
+                                                    seed: image.seed,
                                                     durationMs: Date.now() - (node.metadata?.startedAt || generationStartedAt) 
                                                 },
                                             };
@@ -1863,6 +1944,7 @@ function InfiniteCanvasPage() {
                                                     ...node,
                                                     metadata: {
                                                         ...node.metadata,
+                                                        status: NODE_STATUS_SUCCESS,
                                                         content: uploaded.url,
                                                         storageKey: uploaded.storageKey,
                                                         mimeType: uploaded.mimeType || node.metadata?.mimeType || "image/png",
@@ -1874,6 +1956,7 @@ function InfiniteCanvasPage() {
                                                     ...node,
                                                     metadata: {
                                                         ...node.metadata,
+                                                        status: NODE_STATUS_SUCCESS,
                                                         content: uploaded.url,
                                                         storageKey: uploaded.storageKey,
                                                         mimeType: uploaded.mimeType || node.metadata?.mimeType || "image/png",
@@ -2554,17 +2637,180 @@ function InfiniteCanvasPage() {
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
 
-                <div className="hidden">
-                    <Image
-                        src={previewNode?.metadata?.content || undefined}
-                        preview={{
-                            open: Boolean(previewNode?.metadata?.content),
-                            onOpenChange: (open) => {
-                                if (!open) setPreviewNodeId(null);
-                            },
-                        }}
-                    />
-                </div>
+                {previewNode?.metadata?.content ? (() => {
+                    const group = getBatchGroupNodes(previewNode);
+                    const isRoot = previewNode.metadata?.isBatchRoot;
+                    const activeItemNode = isRoot
+                        ? (group.find((n) => n.id === previewNode.metadata?.primaryImageId) || group[0] || previewNode)
+                        : previewNode;
+
+                    const currentIndex = group.findIndex((n) => n.id === activeItemNode.id);
+                    const hasPrev = currentIndex > 0;
+                    const hasNext = currentIndex < group.length - 1;
+
+                    const handlePrev = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (hasPrev) setPreviewNodeId(group[currentIndex - 1].id);
+                    };
+
+                    const handleNext = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (hasNext) setPreviewNodeId(group[currentIndex + 1].id);
+                    };
+
+                    const handleDelete = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        const nextId = hasNext
+                            ? group[currentIndex + 1].id
+                            : hasPrev
+                              ? group[currentIndex - 1].id
+                              : null;
+                        
+                        setPreviewNodeId(nextId);
+                        deleteNodes(new Set([activeItemNode.id]));
+                    };
+
+                    const handleWheel = (e: React.WheelEvent) => {
+                        e.preventDefault();
+                        const factor = 1.6;
+                        if (e.deltaY < 0) {
+                            setPreviewZoom((z) => Math.min(5, z * factor));
+                        } else {
+                            setPreviewZoom((z) => Math.max(0.2, z / factor));
+                        }
+                    };
+
+                    const handlePointerDown = (e: React.PointerEvent) => {
+                        if (previewZoom <= 1) return;
+                        e.preventDefault();
+                        setIsImageDragging(true);
+                        dragStartRef.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+                        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                    };
+
+                    const handlePointerMove = (e: React.PointerEvent) => {
+                        if (!isImageDragging) return;
+                        const nextX = e.clientX - dragStartRef.current.x;
+                        const nextY = e.clientY - dragStartRef.current.y;
+                        setPanOffset({ x: nextX, y: nextY });
+                    };
+
+                    const handlePointerUp = (e: React.PointerEvent) => {
+                        if (isImageDragging) {
+                            setIsImageDragging(false);
+                            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+                        }
+                    };
+
+                    const naturalWidth = Math.round(activeItemNode.metadata?.naturalWidth || activeItemNode.width);
+                    const naturalHeight = Math.round(activeItemNode.metadata?.naturalHeight || activeItemNode.height);
+                    const mimeType = activeItemNode.metadata?.mimeType || "image/png";
+                    const format = mimeType.replace("image/", "").toUpperCase();
+                    const bytes = activeItemNode.metadata?.bytes || 0;
+                    const sizeLabel = bytes ? formatBytes(bytes) : "";
+                    const seedVal = activeItemNode.metadata?.seed;
+
+                    return (
+                        <div
+                            className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/25 backdrop-blur-md transition-all duration-300 select-none cursor-zoom-out"
+                            onClick={() => setPreviewNodeId(null)}
+                        >
+                            {/* Image Container with Zoom & Floating Metadata/Operations */}
+                            <div
+                                className="relative flex max-h-[85vh] max-w-[85vw] items-center justify-center overflow-visible cursor-default"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {/* Left Navigation Arrow */}
+                                {group.length > 1 ? (
+                                    <button
+                                        type="button"
+                                        disabled={!hasPrev}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (hasPrev) {
+                                                setPreviewNodeId(group[currentIndex - 1].id);
+                                            }
+                                        }}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        className="absolute left-[-80px] top-1/2 z-[2010] -translate-y-1/2 flex size-14 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition-all hover:bg-white/10 hover:scale-105 active:scale-95 disabled:opacity-20 disabled:cursor-not-allowed"
+                                    >
+                                        <ChevronLeft className="size-8" />
+                                    </button>
+                                ) : null}
+
+                                {/* Right Navigation Arrow */}
+                                {group.length > 1 ? (
+                                    <button
+                                        type="button"
+                                        disabled={!hasNext}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (hasNext) {
+                                                setPreviewNodeId(group[currentIndex + 1].id);
+                                            }
+                                        }}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        className="absolute right-[-80px] top-1/2 z-[2010] -translate-y-1/2 flex size-14 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition-all hover:bg-white/10 hover:scale-105 active:scale-95 disabled:opacity-20 disabled:cursor-not-allowed"
+                                    >
+                                        <ChevronRight className="size-8" />
+                                    </button>
+                                ) : null}
+
+                                {/* Top-Right Operation Overlay: Delete Button */}
+                                <button
+                                    type="button"
+                                    onClick={handleDelete}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    className="absolute right-0 top-[-62px] z-[2020] flex size-12 cursor-pointer items-center justify-center rounded-full border border-red-500/20 bg-red-500/10 text-red-400 transition-all hover:bg-red-500/20 hover:scale-105 active:scale-95"
+                                    title="删除图片"
+                                >
+                                    <Trash2 className="size-5.5" />
+                                </button>
+
+                                {/* Top Floating Metadata (No Border, Glassmorphic overlay directly on the image) */}
+                                <div className="absolute left-4 top-4 z-[2015] flex flex-wrap gap-2 select-text" onClick={(e) => e.stopPropagation()}>
+                                    <span className="rounded bg-black/45 px-2 py-1 text-[11px] font-medium leading-none text-white/90 backdrop-blur-md">
+                                        {naturalWidth} x {naturalHeight} · {format} {sizeLabel ? ` · ${sizeLabel}` : ""}
+                                        {seedVal !== undefined && seedVal !== null ? (
+                                            <>
+                                                {" · Seed: "}
+                                                <span
+                                                    className="cursor-pointer hover:underline select-all text-blue-400 font-semibold"
+                                                    title="点击复制种子值"
+                                                    onClick={async (event) => {
+                                                        event.stopPropagation();
+                                                        await navigator.clipboard.writeText(String(seedVal));
+                                                        message.success(`Seed 已复制: ${seedVal}`);
+                                                    }}
+                                                >
+                                                    {seedVal}
+                                                </span>
+                                            </>
+                                        ) : ""}
+                                        {group.length > 1 ? ` · [${currentIndex + 1} / ${group.length}]` : ""}
+                                    </span>
+                                </div>
+
+                                <img
+                                    src={activeItemNode.metadata?.content || ""}
+                                    alt={activeItemNode.title}
+                                    onWheel={handleWheel}
+                                    onPointerDown={handlePointerDown}
+                                    onPointerMove={handlePointerMove}
+                                    onPointerUp={handlePointerUp}
+                                    className={`max-h-[85vh] max-w-[85vw] object-contain rounded-2xl shadow-[0_24px_72px_rgba(0,0,0,0.4)] select-text ${previewZoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
+                                    style={{
+                                        transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${previewZoom})`,
+                                        transition: isImageDragging ? "none" : "transform 0.12s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    );
+                })() : null}
 
                 <Modal
                     title="清空画布？"

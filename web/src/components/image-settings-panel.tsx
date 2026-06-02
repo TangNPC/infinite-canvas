@@ -41,7 +41,7 @@ const aspectOptions = [
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count" | "outputFormat" | "outputCompression" | "moderation", value: string) => void;
+    onConfigChange: (key: keyof AiConfig, value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -50,7 +50,7 @@ type ImageSettingsPanelProps = {
     collapsible?: boolean;
 };
 
-type ImageSettingSectionKey = "quality" | "size" | "aspect" | "count" | "format" | "compression" | "moderation";
+type ImageSettingSectionKey = "quality" | "size" | "aspect" | "count" | "format" | "compression" | "moderation" | "seed";
 
 const defaultCollapsedSettings: Record<ImageSettingSectionKey, boolean> = {
     quality: false,
@@ -60,6 +60,7 @@ const defaultCollapsedSettings: Record<ImageSettingSectionKey, boolean> = {
     format: true,
     compression: true,
     moderation: true,
+    seed: true,
 };
 
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10, collapsible = false }: ImageSettingsPanelProps) {
@@ -168,6 +169,41 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <CountInput value={count} max={maxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
                     </div>,
                 )}
+                {(() => {
+                    const modelLower = config.model?.toLowerCase().replace(/[\s_]+/g, "-") || "";
+                    const isAgnesModel = modelLower.startsWith("agnes-image") || modelLower.startsWith("agens-image");
+                    return isAgnesModel;
+                })() ? renderSection(
+                    "seed",
+                    "随机种子 (Seed)",
+                    config.seed ? String(config.seed) : "自适应随机",
+                    <div className="flex h-9 overflow-hidden rounded-xl border text-sm transition-all focus-within:border-current" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+                        <input
+                            type="text"
+                            placeholder="留空使用自适应分发算法"
+                            className="min-w-0 flex-1 bg-transparent px-3 outline-none"
+                            style={{ color: theme.node.text }}
+                            value={config.seed ?? ""}
+                            onChange={(event) => {
+                                const val = event.target.value;
+                                if (val === "" || /^-?\d*$/.test(val)) {
+                                    onConfigChange("seed", val);
+                                }
+                            }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                        {config.seed ? (
+                            <button
+                                type="button"
+                                className="grid w-9 place-items-center cursor-pointer opacity-60 hover:opacity-100"
+                                style={{ color: theme.node.text }}
+                                onClick={() => onConfigChange("seed", "")}
+                            >
+                                ✕
+                            </button>
+                        ) : null}
+                    </div>,
+                ) : null}
                 {renderSection(
                     "format",
                     "格式",

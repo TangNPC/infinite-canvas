@@ -55,6 +55,7 @@ export type AiConfig = {
     outputCompression: string;
     moderation: "auto" | "low";
     count: string;
+    seed?: string;
 };
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
@@ -93,6 +94,7 @@ export const defaultConfig: AiConfig = {
     outputCompression: "100",
     moderation: "auto",
     count: "1",
+    seed: "",
 };
 
 type ConfigStore = {
@@ -231,6 +233,7 @@ export const useConfigStore = create<ConfigStore>()(
                         systemPrompts: { ...defaultConfig.systemPrompts, ...(config.systemPrompts || {}) },
                         syncModelConfig: config.syncModelConfig === true,
                         syncStorageConfig: config.syncStorageConfig === true,
+                        seed: config.seed ?? "",
                     },
                 };
             },
