@@ -146,7 +146,7 @@ export function normalizeLocalChannels(config: Partial<AiConfig>) {
     const channels = Array.isArray(config.localChannels) ? config.localChannels : [];
     const normalized = channels.map((channel, index) => ({
         id: channel.id || `local-${index + 1}`,
-        name: channel.name || `本地渠道 ${index + 1}`,
+        name: typeof channel.name === "string" ? channel.name : `本地渠道 ${index + 1}`,
         baseUrl: channel.baseUrl || "",
         apiKey: channel.apiKey || "",
         models: Array.isArray(channel.models) ? channel.models.filter(Boolean) : [],

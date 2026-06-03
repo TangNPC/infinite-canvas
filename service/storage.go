@@ -50,6 +50,7 @@ type StorageObjectProviderInput struct {
 	SecretAccessKey string `json:"secretAccessKey"`
 	PublicBaseURL   string `json:"publicBaseUrl"`
 	PathPrefix      string `json:"pathPrefix"`
+	Enabled         *bool  `json:"enabled,omitempty"`
 }
 
 type UserConfigPayload struct {
@@ -113,13 +114,62 @@ var (
 	storageCapacityMu   sync.Mutex
 )
 
+func HasAdminStorageProvider(storage model.PrivateStorageSetting) bool {
+	for _, provider := range storage.Providers {
+		if provider.Enabled && provider.Endpoint != "" && provider.Bucket != "" && provider.AccessKeyID != "" && provider.SecretAccessKey != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func HasActiveCloudStorage(ctx context.Context) (bool, error) {
+	settings, err := repository.GetSettings()
+	if err != nil {
+		return false, err
+	}
+	settings = normalizeSettings(settings)
+	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	if HasAdminStorageProvider(storage) {
+		return true, nil
+	}
+	if storage.AllowUserProvider {
+		user, ok := UserFromContext(ctx)
+		if ok && user.ID != "" {
+			config, found, err := repository.GetUserConfig(user.ID)
+			if err == nil && found && strings.TrimSpace(config.StorageProvider) != "" {
+				var provider StorageObjectProviderInput
+				if err := json.Unmarshal([]byte(config.StorageProvider), &provider); err == nil {
+					enabled := true
+					if provider.Enabled != nil {
+						enabled = *provider.Enabled
+					}
+					if enabled && provider.Endpoint != "" && provider.Bucket != "" && provider.AccessKeyID != "" && provider.SecretAccessKey != "" {
+						return true, nil
+					}
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
 func PublicStorageConfig() (model.PublicStorageSetting, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return model.PublicStorageSetting{}, err
 	}
 	settings = normalizeSettings(settings)
-	return model.PublicStorageSetting{Mode: settings.Private.Storage.Mode, AllowUserProvider: settings.Private.Storage.AllowUserProvider}, nil
+	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+
+	mode := "local_indexeddb"
+	if HasAdminStorageProvider(storage) {
+		mode = "server_sqlite_s3"
+	} else if storage.AllowUserProvider {
+		mode = "hybrid"
+	}
+
+	return model.PublicStorageSetting{Mode: mode, AllowUserProvider: storage.AllowUserProvider}, nil
 }
 
 func StorageObjectInfo(id string) (model.StorageObject, error) {
@@ -136,7 +186,12 @@ func CurrentUserConfig(ctx context.Context) (UserConfigPayload, error) {
 		return UserConfigPayload{}, err
 	}
 	result := UserConfigPayload{}
-	result.SyncCapabilities = map[string]bool{"userData": true, "workflows": true, "assets": true}
+	hasCloud, _ := HasActiveCloudStorage(ctx)
+	result.SyncCapabilities = map[string]bool{
+		"userData":  hasCloud,
+		"workflows": true,
+		"assets":    hasCloud,
+	}
 	if !ok {
 		return result, nil
 	}
@@ -763,7 +818,7 @@ func SaveCurrentUserStorageProvider(ctx context.Context, provider StorageObjectP
 	raw, _ := json.Marshal(StorageObjectProviderInput{
 		Name: normalized.Name, Type: normalized.Type, Endpoint: normalized.Endpoint, Region: normalized.Region,
 		Bucket: normalized.Bucket, AccessKeyID: normalized.AccessKeyID, SecretAccessKey: normalized.SecretAccessKey,
-		PublicBaseURL: normalized.PublicBaseURL, PathPrefix: normalized.PathPrefix,
+		PublicBaseURL: normalized.PublicBaseURL, PathPrefix: normalized.PathPrefix, Enabled: &normalized.Enabled,
 	})
 	config, _, err := repository.GetUserConfig(user.ID)
 	if err != nil {
@@ -793,9 +848,6 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	}
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
 	usingUserProvider := providerInput != nil && storage.AllowUserProvider
-	if !usingUserProvider && storage.Mode != "server_sqlite_s3" && storage.Mode != "hybrid" {
-		return UploadedStorageObject{}, errors.New("服务端对象存储未启用")
-	}
 	var provider model.StorageProvider
 	if usingUserProvider {
 		provider = normalizeUserStorageProvider(*providerInput, ctx)
@@ -805,7 +857,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	} else {
 		provider, err = selectStorageProvider(storage)
 		if err != nil {
-			return UploadedStorageObject{}, err
+			return UploadedStorageObject{}, errors.New("服务端对象存储未启用")
 		}
 	}
 	objectID := uuid.NewString()
@@ -1240,6 +1292,10 @@ func normalizeUserStorageProvider(input StorageObjectProviderInput, ctx context.
 	if user, ok := UserFromContext(ctx); ok && user.ID != "" {
 		owner = user.ID
 	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
 	return normalizeStorageProvider(model.StorageProvider{
 		Name:            input.Name,
 		Type:            input.Type,
@@ -1251,7 +1307,7 @@ func normalizeUserStorageProvider(input StorageObjectProviderInput, ctx context.
 		PublicBaseURL:   input.PublicBaseURL,
 		PathPrefix:      input.PathPrefix,
 		Weight:          1,
-		Enabled:         true,
+		Enabled:         enabled,
 		OwnerUserID:     owner,
 	})
 }

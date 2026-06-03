@@ -1,17 +1,19 @@
 "use client";
 
-import { App, Button, Form, Input, Modal, Segmented, Select, Switch } from "antd";
+import { App, Button, Form, Input, Modal, Segmented, Select, Switch, Tabs, Checkbox, Space, Typography } from "antd";
 import { useEffect, useState } from "react";
+import { ReloadOutlined } from "@ant-design/icons";
 
 import { ModelPicker } from "@/components/model-picker";
 import { fetchImageModels } from "@/services/api/image";
 import { fetchUserConfig, measureUserStorageProvider, syncUserModelConfig, syncUserStorageProvider } from "@/services/api/user-config";
-import { defaultUserStorageProvider, saveUserStorageProvider, USER_STORAGE_PROVIDER_KEY, type UserStorageProvider } from "@/services/image-storage";
+import { defaultUserStorageProvider, saveUserStorageProvider, USER_STORAGE_PROVIDER_KEY, type UserStorageProvider, clearStorageConfigCache as clearImageStorageCache } from "@/services/image-storage";
+import { clearStorageConfigCache as clearFileStorageCache } from "@/services/file-storage";
 import { normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type LocalModelChannel } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 export function AppConfigModal() {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const [loadingModels, setLoadingModels] = useState(false);
     const config = useConfigStore((state) => state.config);
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -34,6 +36,17 @@ export function AppConfigModal() {
     const [measuringStorage, setMeasuringStorage] = useState(false);
     const [storageUsageText, setStorageUsageText] = useState("");
     const [saving, setSaving] = useState(false);
+    const [migrating, setMigrating] = useState(false);
+    const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
+
+    const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+    const [selectingChannelId, setSelectingChannelId] = useState("");
+    const [modelSelectSource, setModelSelectSource] = useState<string[]>([]);
+    const [modelSelectExisting, setModelSelectExisting] = useState<string[]>([]);
+    const [modelSelectSelected, setModelSelectSelected] = useState<string[]>([]);
+    const [modelSelectKeyword, setModelSelectKeyword] = useState("");
+    const [modelSelectNewModel, setModelSelectNewModel] = useState("");
+    const [modelSelectTab, setModelSelectTab] = useState<"new" | "current">("new");
 
     useEffect(() => {
         try {
@@ -44,11 +57,34 @@ export function AppConfigModal() {
         if (!isConfigOpen || !token) return;
         void fetchUserConfig(token)
             .then((payload) => {
+                let syncModel = false;
+                let syncStorage = false;
                 if (payload.modelConfig) {
-                    Object.entries(payload.modelConfig).forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
+                    syncModel = !!payload.modelConfig.syncModelConfig;
+                    syncStorage = !!payload.modelConfig.syncStorageConfig;
+
+                    if (syncModel) {
+                        Object.entries(payload.modelConfig).forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
+                    } else {
+                        updateConfig("syncModelConfig", false);
+                    }
+
+                    if (syncStorage) {
+                        updateConfig("syncStorageConfig", true);
+                    } else {
+                        updateConfig("syncStorageConfig", false);
+                    }
+                } else {
+                    updateConfig("syncModelConfig", false);
+                    updateConfig("syncStorageConfig", false);
                 }
-                if (payload.storageProvider) {
-                    const next = { ...defaultUserStorageProvider(), ...payload.storageProvider, enabled: true };
+
+                if (syncStorage && payload.storageProvider) {
+                    const next = {
+                        ...defaultUserStorageProvider(),
+                        ...payload.storageProvider,
+                        enabled: payload.storageProvider.enabled !== undefined ? payload.storageProvider.enabled : true
+                    };
                     setUserStorage(next);
                     saveUserStorageProvider(next);
                 }
@@ -65,20 +101,89 @@ export function AppConfigModal() {
 
         setSaving(true);
         try {
-            if (token && config.syncModelConfig) {
-                await syncUserModelConfig(token, config);
+            if (token) {
+                if (config.syncModelConfig) {
+                    await syncUserModelConfig(token, config);
+                } else {
+                    await syncUserModelConfig(token, {
+                        ...config,
+                        syncModelConfig: false,
+                        apiKey: "",
+                        baseUrl: "",
+                        localChannels: [],
+                    });
+                }
             }
-            if (token && allowUserStorageProvider && config.syncStorageConfig) {
-                await syncUserStorageProvider(token, userStorage);
+            if (token && allowUserStorageProvider) {
+                if (config.syncStorageConfig) {
+                    await syncUserStorageProvider(token, userStorage);
+                } else {
+                    await syncUserStorageProvider(token, {
+                        ...userStorage,
+                        enabled: false,
+                        endpoint: "",
+                        bucket: "",
+                        accessKeyId: "",
+                        secretAccessKey: "",
+                    });
+                }
             }
             
+            clearImageStorageCache();
+            clearFileStorageCache();
+
+            let cloudSyncActive = false;
+            if (token) {
+                const userConfig = await fetchUserConfig(token);
+                cloudSyncActive = userConfig.syncCapabilities?.userData === true && userConfig.syncCapabilities?.assets === true;
+                
+                if (cloudSyncActive) {
+                    const { checkLocalAssetsExist, migrateLocalAssetsToCloud } = await import("@/services/storage-migration");
+                    const hasLocalData = await checkLocalAssetsExist();
+                    if (hasLocalData) {
+                        const confirmMigration = await new Promise<boolean>((resolve) => {
+                            modal.confirm({
+                                title: "迁移本地资源到云端",
+                                content: "检测到您之前有在浏览器本地离线保存的图片和视频资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
+                                okText: "一键迁移",
+                                cancelText: "暂不迁移",
+                                onOk: () => resolve(true),
+                                onCancel: () => resolve(false),
+                            });
+                        });
+
+                        if (confirmMigration) {
+                            setMigrating(true);
+                            setMigrationProgress({ current: 0, total: 0 });
+                            try {
+                                await migrateLocalAssetsToCloud((current, total) => {
+                                    setMigrationProgress({ current, total });
+                                });
+                                message.success("迁移成功！您的所有资产已安全地上传至云端并完成同步。");
+                            } catch (migError) {
+                                console.error("Migration error", migError);
+                                message.error("资产迁移过程中遇到错误，请检查您的对象存储配置是否正确。");
+                            } finally {
+                                setMigrating(false);
+                            }
+                        }
+                    }
+                }
+            }
+
             if (isLocalIncomplete || isModelIncomplete) {
                 message.warning("部分通道的模型或直连密钥尚未配置完整，配置已保存并同步");
             } else {
-                message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
+                message.success(cloudSyncActive ? "配置已保存。页面即将重新加载以启用同步..." : (shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存"));
             }
             setConfigDialogOpen(false);
             clearPromptContinue();
+
+            if (cloudSyncActive) {
+                window.setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            }
         } catch (error) {
             message.error(error instanceof Error ? `同步配置失败：${error.message}` : "同步配置失败");
         } finally {
@@ -111,7 +216,53 @@ export function AppConfigModal() {
         try {
             saveUserStorageProvider(userStorage);
             await syncUserStorageProvider(token, userStorage);
-            message.success("S3/R2 配置已同步到账号");
+            
+            clearImageStorageCache();
+            clearFileStorageCache();
+
+            const userConfig = await fetchUserConfig(token);
+            const cloudSyncActive = userConfig.syncCapabilities?.userData === true && userConfig.syncCapabilities?.assets === true;
+            
+            if (cloudSyncActive) {
+                const { checkLocalAssetsExist, migrateLocalAssetsToCloud } = await import("@/services/storage-migration");
+                const hasLocalData = await checkLocalAssetsExist();
+                if (hasLocalData) {
+                    const confirmMigration = await new Promise<boolean>((resolve) => {
+                        modal.confirm({
+                            title: "迁移本地资源到云端",
+                            content: "检测到您之前有在浏览器本地离线保存的图片和视频资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
+                            okText: "一键迁移",
+                            cancelText: "暂不迁移",
+                            onOk: () => resolve(true),
+                            onCancel: () => resolve(false),
+                        });
+                    });
+
+                    if (confirmMigration) {
+                        setMigrating(true);
+                        setMigrationProgress({ current: 0, total: 0 });
+                        try {
+                            await migrateLocalAssetsToCloud((current, total) => {
+                                setMigrationProgress({ current, total });
+                            });
+                            message.success("迁移成功！您的所有资产已安全地上传至云端并完成同步。");
+                        } catch (migError) {
+                            console.error("Migration error", migError);
+                            message.error("资产迁移过程中遇到错误，请检查您的对象存储配置是否正确。");
+                        } finally {
+                            setMigrating(false);
+                        }
+                    }
+                }
+            }
+
+            message.success(cloudSyncActive ? "S3/R2 配置已同步。页面即将重新加载以启用同步..." : "S3/R2 配置已同步到账号");
+            
+            if (cloudSyncActive) {
+                window.setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+            }
         } catch (error) {
             message.error(error instanceof Error ? error.message : "S3/R2 配置同步失败");
         } finally {
@@ -192,6 +343,8 @@ export function AppConfigModal() {
         updateLocalChannels(normalizeLocalChannels(config).filter((channel) => channel.id !== id));
     };
 
+    const uniqueModels = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
+
     const refreshLocalChannelModels = async (channel: LocalModelChannel) => {
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
             message.error("请先填写该渠道的 Base URL 和 API Key");
@@ -200,8 +353,17 @@ export function AppConfigModal() {
         setLoadingModels(true);
         try {
             const models = await fetchImageModels({ ...config, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey, localChannels: [{ ...channel, models: channel.models }], model: channel.models[0] || config.model });
-            patchLocalChannel(channel.id, { models });
-            message.success("模型列表已更新");
+            
+            const current = uniqueModels(channel.models || []);
+            setModelSelectExisting(current);
+            setModelSelectSource(uniqueModels(models));
+            setModelSelectSelected(uniqueModels([...current, ...models]));
+            setSelectingChannelId(channel.id);
+            setModelSelectKeyword("");
+            setModelSelectNewModel("");
+            setModelSelectTab("new");
+            setModelSelectorOpen(true);
+            message.success(`已获取 ${models.length} 个模型，请选择后确认`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
         } finally {
@@ -209,8 +371,75 @@ export function AppConfigModal() {
         }
     };
 
+    const refetchModelsInSelector = async () => {
+        const channel = normalizeLocalChannels(config).find((c) => c.id === selectingChannelId);
+        if (!channel) return;
+        setLoadingModels(true);
+        try {
+            const models = await fetchImageModels({ ...config, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey, localChannels: [{ ...channel, models: channel.models }], model: channel.models[0] || config.model });
+            const current = uniqueModels(modelSelectSelected);
+            setModelSelectExisting(current);
+            setModelSelectSource(uniqueModels(models));
+            setModelSelectSelected(uniqueModels([...current, ...models]));
+            setModelSelectKeyword("");
+            setModelSelectNewModel("");
+            setModelSelectTab("new");
+            message.success(`已更新并拉取 ${models.length} 个模型`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "读取模型失败");
+        } finally {
+            setLoadingModels(false);
+        }
+    };
+
+    const modelSelectGroups = {
+        new: modelSelectSource.filter((m) => !modelSelectExisting.includes(m)),
+        current: modelSelectExisting,
+    };
+
+    const filteredNewModels = modelSelectGroups.new.filter((m) => m.toLowerCase().includes(modelSelectKeyword.toLowerCase()));
+    const filteredCurrentModels = modelSelectGroups.current.filter((m) => m.toLowerCase().includes(modelSelectKeyword.toLowerCase()));
+    const activeModelSelectModels = modelSelectTab === "new" ? filteredNewModels : filteredCurrentModels;
+
+    const activeSelectedCount = activeModelSelectModels.filter((m) => modelSelectSelected.includes(m)).length;
+
+    const toggleSelectedModel = (model: string, checked: boolean) => {
+        setModelSelectSelected((current) => (checked ? uniqueModels([...current, model]) : current.filter((item) => item !== model)));
+    };
+
+    const selectActiveModels = () => {
+        setModelSelectSelected((current) => uniqueModels([...current, ...activeModelSelectModels]));
+    };
+
+    const clearActiveModels = () => {
+        const active = new Set(activeModelSelectModels);
+        setModelSelectSelected((current) => current.filter((model) => !active.has(model)));
+    };
+
+    const addModelInSelector = () => {
+        const model = modelSelectNewModel.trim();
+        if (!model) return;
+        setModelSelectExisting((current) => uniqueModels([...current, model]));
+        setModelSelectSelected((current) => uniqueModels([...current, model]));
+        setModelSelectNewModel("");
+        setModelSelectTab("current");
+    };
+
+    const closeChannelModelSelector = () => {
+        setModelSelectorOpen(false);
+        setModelSelectKeyword("");
+        setModelSelectNewModel("");
+    };
+
+    const confirmChannelModelSelector = () => {
+        const models = uniqueModels(modelSelectSelected);
+        patchLocalChannel(selectingChannelId, { models });
+        closeChannelModelSelector();
+    };
+
     return (
-        <Modal
+        <>
+            <Modal
             title={
                 <div>
                     <div className="text-lg font-semibold">配置</div>
@@ -389,7 +618,125 @@ export function AppConfigModal() {
                 </Form>
             </div>
         </Modal>
-    );
+        <Modal
+            title={
+                <Space size={12}>
+                    <span className="text-lg font-semibold">选择渠道模型</span>
+                    <Typography.Text type="secondary">
+                        已选择 {modelSelectSelected.length} / {uniqueModels([...modelSelectSource, ...modelSelectExisting]).length}
+                    </Typography.Text>
+                </Space>
+            }
+            open={modelSelectorOpen}
+            width={760}
+            centered
+            onCancel={closeChannelModelSelector}
+            footer={
+                <Space>
+                    <Button onClick={closeChannelModelSelector}>取消</Button>
+                    <Button type="primary" onClick={confirmChannelModelSelector}>
+                        确定
+                    </Button>
+                </Space>
+            }
+            destroyOnHidden
+        >
+            <div className="flex flex-col gap-4 pt-2">
+                <div className="flex flex-wrap gap-3">
+                    <Input.Search
+                        placeholder="搜索模型"
+                        allowClear
+                        value={modelSelectKeyword}
+                        onChange={(event) => setModelSelectKeyword(event.target.value)}
+                        style={{ flex: "1 1 240px" }}
+                    />
+                    <Space.Compact style={{ flex: "1 1 320px" }}>
+                        <Input
+                            value={modelSelectNewModel}
+                            placeholder="输入模型名称"
+                            onChange={(event) => setModelSelectNewModel(event.target.value)}
+                            onPressEnter={addModelInSelector}
+                        />
+                        <Button onClick={addModelInSelector}>增加模型</Button>
+                        <Button
+                            icon={<ReloadOutlined />}
+                            loading={loadingModels}
+                            onClick={() => void refetchModelsInSelector()}
+                        >
+                            拉取模型列表
+                        </Button>
+                    </Space.Compact>
+                </div>
+                <Tabs
+                    activeKey={modelSelectTab}
+                    onChange={(key) => setModelSelectTab(key as "new" | "current")}
+                    items={[
+                        { key: "new", label: `新获取的模型 (${modelSelectGroups.new.length})` },
+                        { key: "current", label: `已有的模型 (${modelSelectGroups.current.length})` },
+                    ]}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <Typography.Text type="secondary">
+                        当前列表已选择 {activeSelectedCount} / {activeModelSelectModels.length}
+                    </Typography.Text>
+                    <Space size={8}>
+                        <Button
+                            size="small"
+                            disabled={!activeModelSelectModels.length || activeSelectedCount === activeModelSelectModels.length}
+                            onClick={selectActiveModels}
+                        >
+                            全选当前列表
+                        </Button>
+                        <Button
+                            size="small"
+                            disabled={!activeSelectedCount}
+                            onClick={clearActiveModels}
+                        >
+                            取消当前列表
+                        </Button>
+                    </Space>
+                </div>
+                <div className="max-h-[300px] overflow-y-auto border-t border-stone-200 pt-3 dark:border-stone-800">
+                    {activeModelSelectModels.length ? (
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                            {activeModelSelectModels.map((model) => (
+                                <Checkbox
+                                    key={model}
+                                    checked={modelSelectSelected.includes(model)}
+                                    onChange={(event) => toggleSelectedModel(model, event.target.checked)}
+                                >
+                                    <span className="break-all text-sm">{model}</span>
+                                </Checkbox>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="py-12 text-center">
+                            <Typography.Text type="secondary">没有匹配的模型</Typography.Text>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Modal>
+        <Modal
+            open={migrating}
+            footer={null}
+            closable={false}
+            mask={{ closable: false }}
+            title="数据同步中"
+            centered
+        >
+            <div className="flex flex-col items-center justify-center p-6 space-y-4">
+                <ReloadOutlined spin className="text-3xl text-blue-500" />
+                <span className="text-base font-medium">正在将本地的图片和视频资源安全地同步到云端存储...</span>
+                <span className="text-sm text-gray-500">
+                    进度: {migrationProgress.current} / {migrationProgress.total} (
+                    {migrationProgress.total > 0 ? Math.round((migrationProgress.current / migrationProgress.total) * 100) : 0}
+                    %)
+                </span>
+            </div>
+        </Modal>
+    </>
+);
 }
 
 function FeatureSwitch({ title, description, checked, onChange }: { title: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {

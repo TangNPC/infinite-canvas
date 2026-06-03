@@ -146,7 +146,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                         placement="topRight"
                         autoAdjustOverflow={false}
                         buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2"
-                        onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
+                        onConfigChange={(key, value) => {
+                            if (key === "count") {
+                                onConfigChange(node.id, { count: Number(value) || 1 });
+                            } else if (key === "seed") {
+                                onConfigChange(node.id, { seed: value ? Number(value) : undefined });
+                            } else {
+                                onConfigChange(node.id, { [key]: value });
+                            }
+                        }}
                     />
                 ) : null}
             </div>
@@ -369,5 +377,6 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
         count: String(node.metadata?.count || (mode === "image" ? 3 : globalConfig.count) || defaultConfig.count),
+        seed: node.metadata?.seed !== undefined ? String(node.metadata.seed) : globalConfig.seed,
     };
 }

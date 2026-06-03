@@ -3193,6 +3193,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         count: String(node?.metadata?.count || (mode === "image" ? 3 : config.count) || defaultConfig.count),
+        seed: node?.metadata?.seed !== undefined ? String(node.metadata.seed) : config.seed,
     };
 }
 

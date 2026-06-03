@@ -31,21 +31,59 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (token && user?.id) {
-            void hydrateAccountAssets(token);
             void fetchUserConfig(token)
                 .then((payload) => {
+                    const syncAssets = payload.syncCapabilities?.assets === true;
+                    void hydrateAccountAssets(token, syncAssets);
+
+                    const syncUserData = payload.syncCapabilities?.userData === true;
+                    void import("@/app/(user)/canvas/stores/use-canvas-store").then(({ useCanvasStore }) => {
+                        void useCanvasStore.getState().syncWithRemote(token, payload.canvasData, syncUserData);
+                    });
+
+                    let syncModel = false;
+                    let syncStorage = false;
                     if (payload.modelConfig) {
-                        Object.entries(payload.modelConfig).forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
+                        syncModel = !!payload.modelConfig.syncModelConfig;
+                        syncStorage = !!payload.modelConfig.syncStorageConfig;
+
+                        if (syncModel) {
+                            Object.entries(payload.modelConfig).forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
+                        } else {
+                            updateConfig("syncModelConfig", false);
+                        }
+
+                        if (syncStorage) {
+                            updateConfig("syncStorageConfig", true);
+                        } else {
+                            updateConfig("syncStorageConfig", false);
+                        }
+                    } else {
+                        updateConfig("syncModelConfig", false);
+                        updateConfig("syncStorageConfig", false);
                     }
-                    if (payload.storageProvider) {
-                        const next = { ...defaultUserStorageProvider(), ...payload.storageProvider, enabled: true };
+
+                    if (syncStorage && payload.storageProvider) {
+                        const next = {
+                            ...defaultUserStorageProvider(),
+                            ...payload.storageProvider,
+                            enabled: payload.storageProvider.enabled !== undefined ? payload.storageProvider.enabled : true
+                        };
                         saveUserStorageProvider(next);
                     }
                 })
-                .catch(() => {});
+                .catch(() => {
+                    void hydrateAccountAssets(token, false);
+                    void import("@/app/(user)/canvas/stores/use-canvas-store").then(({ useCanvasStore }) => {
+                        useCanvasStore.getState().setSyncEnabled(false);
+                    });
+                });
             return;
         }
         stopAccountAssetSync();
+        void import("@/app/(user)/canvas/stores/use-canvas-store").then(({ useCanvasStore }) => {
+            useCanvasStore.getState().setSyncEnabled(false);
+        });
     }, [hydrateAccountAssets, stopAccountAssetSync, token, user?.id, updateConfig]);
 
     return <>{children}</>;

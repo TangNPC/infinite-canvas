@@ -618,14 +618,8 @@ export default function AdminSettingsPage() {
                                 <Card size="small" title="数据存储">
                                     <Row gutter={16}>
                                         <Col xs={24} md={8}>
-                                            <Form.Item name={["private", "storage", "mode"]} label="存储模式" extra="local_indexeddb 保持浏览器本地；server_sqlite_s3 使用后端 SQLite + S3/R2。">
-                                                <Select
-                                                    options={[
-                                                        { value: "local_indexeddb", label: "IndexedDB 本地" },
-                                                        { value: "server_sqlite_s3", label: "SQLite + S3/R2" },
-                                                        { value: "hybrid", label: "混合模式" },
-                                                    ]}
-                                                />
+                                            <Form.Item label="存储模式" extra="自动检测：当配置并启用任意对象存储时，系统自动开启云端同步。">
+                                                <Input disabled value="自动识别 (动态切换)" />
                                             </Form.Item>
                                         </Col>
                                         <Col xs={24} md={8}>

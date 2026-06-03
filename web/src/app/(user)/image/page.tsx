@@ -611,22 +611,24 @@ export default function ImagePage() {
             const remote = config.imageHistory as { logs?: GenerationLog[]; categories?: GenerationCategory[] } | undefined;
             const remoteLogs = Array.isArray(remote?.logs) ? remote.logs : [];
             const remoteCategories = Array.isArray(remote?.categories) ? remote.categories : [];
-            if (remoteLogs.length || remoteCategories.length) {
-                const localLogs = await readStoredLogs();
-                const localCategories = await readStoredCategories();
-                const mergedLogs = await mergeGenerationLogs(remoteLogs, localLogs);
-                const mergedCategories = mergeGenerationCategories(remoteCategories, localCategories);
-                await replaceStoredImageHistory(mergedLogs, mergedCategories);
-                setLogs(mergedLogs);
-                setCategories(mergedCategories);
-                if (accountHistorySyncEnabledRef.current && (mergedLogs.length !== remoteLogs.length || mergedCategories.length !== remoteCategories.length || remoteLogs.some(hasInlineImageData))) {
-                    await syncUserImageHistory(currentToken, imageHistorySnapshot(mergedLogs, mergedCategories));
-                }
-                return;
-            }
+            
             const localLogs = await readStoredLogs();
             const localCategories = await readStoredCategories();
-            if (accountHistorySyncEnabledRef.current && (localLogs.length || localCategories.length)) await syncUserImageHistory(currentToken, imageHistorySnapshot(localLogs, localCategories));
+            const localHasData = localLogs.length > 0 || localCategories.length > 0;
+            const remoteHasData = remoteLogs.length > 0 || remoteCategories.length > 0;
+
+            if (accountHistorySyncEnabledRef.current) {
+                const remoteNormalized = await Promise.all(remoteLogs.map(normalizeLog));
+                await replaceStoredImageHistory(remoteNormalized, remoteCategories);
+                setLogs(remoteNormalized);
+                setCategories(remoteCategories);
+                return;
+            } else if (remoteHasData && !localHasData) {
+                const remoteNormalized = await Promise.all(remoteLogs.map(normalizeLog));
+                await replaceStoredImageHistory(remoteNormalized, remoteCategories);
+                setLogs(remoteNormalized);
+                setCategories(remoteCategories);
+            }
         } catch {
             // Keep local history available when account sync fails.
         }

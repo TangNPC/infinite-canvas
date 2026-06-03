@@ -507,15 +507,19 @@ export default function VideoPage() {
             const remote = config.videoHistory as { logs?: GenerationLog[] } | undefined;
             const remoteLogs = Array.isArray(remote?.logs) ? remote.logs : [];
             const localLogs = await readStoredLogs();
-            if (remoteLogs.length) {
+            const localHasData = localLogs.length > 0;
+            const remoteHasData = remoteLogs.length > 0;
+
+            if (accountHistorySyncEnabledRef.current) {
                 const remoteNormalized = await mergeVideoLogs(remoteLogs, []);
-                const mergedLogs = await mergeVideoLogs(remoteNormalized, localLogs);
-                await replaceStoredVideoHistory(mergedLogs);
-                setLogs(mergedLogs);
-                if (accountHistorySyncEnabledRef.current && videoHistorySnapshotText(mergedLogs) !== videoHistorySnapshotText(remoteNormalized)) await syncUserVideoHistory(currentToken, videoHistorySnapshot(mergedLogs));
+                await replaceStoredVideoHistory(remoteNormalized);
+                setLogs(remoteNormalized);
                 return;
+            } else if (remoteHasData && !localHasData) {
+                const remoteNormalized = await mergeVideoLogs(remoteLogs, []);
+                await replaceStoredVideoHistory(remoteNormalized);
+                setLogs(remoteNormalized);
             }
-            if (accountHistorySyncEnabledRef.current && localLogs.length) await syncUserVideoHistory(currentToken, videoHistorySnapshot(localLogs));
         } catch {
             // Keep local video history available when account sync fails.
         }

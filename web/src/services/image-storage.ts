@@ -73,13 +73,25 @@ export async function uploadImage(input: string | Blob): Promise<UploadedImage> 
     return { url: urlObj, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
 }
 
+export function clearStorageConfigCache() {
+    storageConfigPromise = null;
+}
+
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     if (storageKey.startsWith("server:")) {
         const id = storageKey.slice("server:".length);
         if (fallback && !fallback.startsWith("blob:")) return fallback;
-        const cached = serverUrls.get(id);
+        const cached = objectUrls.get(storageKey);
         if (cached) return cached;
+        const blob = await store.getItem<Blob>(storageKey).catch(() => null);
+        if (blob) {
+            const url = URL.createObjectURL(blob);
+            objectUrls.set(storageKey, url);
+            return url;
+        }
+        const cachedUrl = serverUrls.get(id);
+        if (cachedUrl) return cachedUrl;
         const info = await apiGet<{ publicUrl?: string }>(`/api/files/${encodeURIComponent(id)}`).catch(() => null);
         if (!info) return fallback;
         const url = info?.publicUrl || `/api/files/${encodeURIComponent(id)}/content`;
@@ -98,7 +110,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
 async function maybeUploadImageToServer(blob: Blob): Promise<UploadedImage | null> {
     const config = await loadStorageConfig().catch(() => null);
     const userProvider = config?.allowUserProvider ? loadUserStorageProvider() : null;
-    const useServerStorage = config && (config.mode === "server_sqlite_s3" || config.mode === "hybrid" || userProvider);
+    const useServerStorage = config && (config.mode === "server_sqlite_s3" || (config.mode === "hybrid" && userProvider));
     if (!config || !useServerStorage) return null;
     const token = useUserStore.getState().token;
     if (!token) {

@@ -8,6 +8,7 @@ export type UserConfigPayload = {
     canvasData?: unknown;
     imageHistory?: unknown;
     videoHistory?: unknown;
+    assetData?: unknown;
     syncCapabilities?: {
         userData?: boolean;
         workflows?: boolean;
@@ -121,6 +122,7 @@ export async function draftUserWorkflow<T>(
 
 function toStorageProviderPayload(provider: UserStorageProvider) {
     return {
+        enabled: provider.enabled,
         name: provider.name,
         type: provider.type || "s3",
         endpoint: provider.endpoint,

@@ -21,7 +21,14 @@ func PublicSettings() (model.PublicSetting, error) {
 	settings, err := repository.GetSettings()
 	settings = normalizeSettings(settings)
 	settings.Public.ModelChannel.Channels = publicChannelInfos(settings.Private.Channels)
-	settings.Public.Storage.Mode = settings.Private.Storage.Mode
+	
+	mode := "local_indexeddb"
+	if HasAdminStorageProvider(settings.Private.Storage) {
+		mode = "server_sqlite_s3"
+	} else if settings.Private.Storage.AllowUserProvider {
+		mode = "hybrid"
+	}
+	settings.Public.Storage.Mode = mode
 	settings.Public.Storage.AllowUserProvider = settings.Private.Storage.AllowUserProvider
 	if len(settings.Public.ModelChannel.AvailableModels) == 0 {
 		settings.Public.ModelChannel.AvailableModels = collectChannelModels(settings.Private.Channels)

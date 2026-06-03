@@ -49,7 +49,7 @@ export async function uploadRemoteMediaToServer(url: string, filename: string): 
 async function uploadMediaBlobToServer(blob: Blob, filename: string): Promise<UploadedFile> {
     const config = await loadStorageConfig().catch(() => null);
     const userProvider = config?.allowUserProvider ? loadUserStorageProvider() : null;
-    if (!config || (config.mode !== "server_sqlite_s3" && config.mode !== "hybrid" && !userProvider)) throw new Error("服务端对象存储未启用");
+    if (!config || (config.mode !== "server_sqlite_s3" && (config.mode !== "hybrid" || !userProvider))) throw new Error("服务端对象存储未启用");
     const token = useUserStore.getState().token;
     if (!token) throw new Error("请先登录后再同步视频");
     const formData = new FormData();
@@ -73,15 +73,33 @@ function proxiedMediaUrl(url: string) {
     return `/api/proxy-image?url=${encodeURIComponent(url)}`;
 }
 
+export function clearStorageConfigCache() {
+    storageConfigPromise = null;
+}
+
+export async function uploadMediaBlob(blob: Blob, filename: string): Promise<UploadedFile> {
+    return uploadMediaBlobToServer(blob, filename);
+}
+
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    return url;
+    const blob = await store.getItem<Blob>(storageKey).catch(() => null);
+    if (blob) {
+        const url = URL.createObjectURL(blob);
+        objectUrls.set(storageKey, url);
+        return url;
+    }
+    if (storageKey.startsWith("server:")) {
+        const id = storageKey.slice("server:".length);
+        if (fallback && !fallback.startsWith("blob:")) return fallback;
+        const info = await apiGet<{ publicUrl?: string }>(`/api/files/${encodeURIComponent(id)}`).catch(() => null);
+        if (!info) return fallback;
+        const url = info?.publicUrl || `/api/files/${encodeURIComponent(id)}/content`;
+        return url;
+    }
+    return fallback;
 }
 
 export async function getMediaBlob(storageKey: string) {

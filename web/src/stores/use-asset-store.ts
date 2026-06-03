@@ -33,7 +33,7 @@ type AssetStore = {
     addAsset: (asset: Omit<Asset, "id" | "createdAt" | "updatedAt">) => string;
     updateAsset: (id: string, patch: Partial<Omit<Asset, "id" | "createdAt">>) => void;
     removeAsset: (id: string) => void;
-    hydrateAccountAssets: (token: string) => Promise<void>;
+    hydrateAccountAssets: (token: string, syncEnabled?: boolean) => Promise<void>;
     syncAccountAssets: (token: string) => Promise<void>;
     stopAccountAssetSync: () => void;
     cleanupImages: (extra?: unknown) => void;
@@ -41,6 +41,7 @@ type AssetStore = {
 
 const ASSET_STORE_KEY = "infinite-canvas:asset_store";
 let activeAssetSyncToken = "";
+let accountAssetSyncEnabled = false;
 let isHydratingAccountAssets = false;
 let syncTimer: number | null = null;
 
@@ -168,24 +169,28 @@ export const useAssetStore = create<AssetStore>()(
                     window.setTimeout(() => scheduleAssetSync(get), 0);
                     return { assets };
                 }),
-            hydrateAccountAssets: async (token) => {
+            hydrateAccountAssets: async (token, syncEnabled = false) => {
                 if (!token) return;
                 activeAssetSyncToken = token;
+                accountAssetSyncEnabled = syncEnabled;
                 isHydratingAccountAssets = true;
                 try {
                     const remote = await fetchUserAssetData<AssetSnapshot>(token);
                     const remoteAssets = Array.isArray(remote?.assets) ? remote.assets : [];
-                    if (remoteAssets.length) {
-                        set((state) => ({ assets: mergeAssets(remoteAssets, state.assets) }));
-                    } else if (get().assets.length) {
-                        await syncUserAssetData(token, { assets: get().assets });
+                    if (syncEnabled) {
+                        set({ assets: remoteAssets });
+                    } else {
+                        const localHasAssets = get().assets.length > 0;
+                        if (!localHasAssets && remoteAssets.length) {
+                            set({ assets: remoteAssets });
+                        }
                     }
                 } finally {
                     isHydratingAccountAssets = false;
                 }
             },
             syncAccountAssets: async (token) => {
-                if (!token) return;
+                if (!token || !accountAssetSyncEnabled) return;
                 await syncUserAssetData(token, { assets: get().assets });
             },
             stopAccountAssetSync: () => {
@@ -245,14 +250,14 @@ export const useAssetStore = create<AssetStore>()(
 );
 
 function scheduleAssetSync(get: () => AssetStore) {
-    if (isHydratingAccountAssets || !activeAssetSyncToken || typeof window === "undefined") return;
+    if (isHydratingAccountAssets || !activeAssetSyncToken || !accountAssetSyncEnabled || typeof window === "undefined") return;
     if (syncTimer) window.clearTimeout(syncTimer);
     syncTimer = window.setTimeout(() => {
         void get().syncAccountAssets(activeAssetSyncToken).catch(() => {});
     }, 600);
 }
 
-function mergeAssets(remoteAssets: Asset[], localAssets: Asset[]) {
+export function mergeAssets(remoteAssets: Asset[], localAssets: Asset[]) {
     const records = new Map<string, Asset>();
     [...localAssets, ...remoteAssets].forEach((asset) => {
         const previous = records.get(asset.id);
