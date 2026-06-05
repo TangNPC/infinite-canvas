@@ -2,7 +2,7 @@
 
 import type { CSSProperties, RefObject } from "react";
 import { Avatar, Dropdown, Tooltip } from "antd";
-import { Keyboard, LogOut, Settings2, Shield } from "lucide-react";
+import { Crown, Keyboard, ListChecks, LogOut, Settings2, Shield, Trophy } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -54,7 +54,10 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     };
     const menuItems: ItemType[] = [
         { key: "user", disabled: true, label: <span className="font-medium text-current">{userName}</span> },
-        ...(user?.role === "admin" ? [{ key: "admin", icon: <Shield className="size-4" />, label: <Link href="/admin" target="_blank">管理后台</Link> }] : []),
+        { key: "membership", icon: <Crown className="size-4" />, label: <Link href="/membership">会员中心</Link> },
+        { key: "orders", icon: <ListChecks className="size-4" />, label: <Link href="/orders">我的订单</Link> },
+        { key: "leaderboard", icon: <Trophy className="size-4" />, label: <Link href="/leaderboard">生图排行榜</Link> },
+        ...(user?.role === "admin" ? [{ key: "admin", icon: <Shield className="size-4" />, label: <Link href="/admin">管理后台</Link> }] : []),
         ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
         { type: "divider" },
         { key: "logout", icon: <LogOut className="size-4" />, label: "退出登录", onClick: handleLogout },

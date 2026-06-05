@@ -234,6 +234,18 @@ export function useEffectiveConfig() {
     return useMemo(() => resolveEffectiveConfig(config, modelChannel), [config, modelChannel]);
 }
 
+export function useSiteInfo() {
+    const site = useConfigStore((state) => state.publicSettings?.site);
+    return {
+        name: site?.name || "无限画布",
+        subtitle: site?.subtitle || "",
+        description: site?.description || "一个无限画布创作工具",
+        logoUrl: site?.logoUrl || "",
+        faviconUrl: site?.faviconUrl || "",
+        copyright: site?.copyright || "",
+    };
+}
+
 export function buildApiUrl(baseUrl: string, path: string) {
     const normalizedBaseUrl = normalizeArkPlanBaseUrl(baseUrl.trim().replace(/\/+$/, ""));
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();

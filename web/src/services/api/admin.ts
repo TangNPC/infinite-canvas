@@ -1,4 +1,6 @@
 import { apiDelete, apiGet, apiPost, compactApiParams } from "@/services/api/request";
+import type { MembershipLevel } from "@/services/api/auth";
+import type { MembershipPlan, MembershipPlanListResponse, MembershipOrder, MembershipOrderListResponse } from "@/services/api/membership";
 import type { Prompt, PromptListResponse } from "@/services/api/prompts";
 
 export type AdminPromptCategory = {
@@ -18,6 +20,8 @@ export type AdminUser = {
     avatarUrl: string;
     role: "user" | "admin";
     credits: number;
+    membershipLevel: MembershipLevel;
+    membershipExpiresAt: string;
     affCode: string;
     affCount: number;
     inviterId: string;
@@ -235,12 +239,30 @@ export type AdminModelCost = {
 };
 
 export type AdminPublicSettings = {
+    site: {
+        name: string;
+        subtitle: string;
+        description: string;
+        logoUrl: string;
+        faviconUrl: string;
+        copyright: string;
+    };
     modelChannel: AdminPublicModelChannelSettings;
     auth: {
         allowRegister: boolean;
         linuxDo: {
             enabled: boolean;
         };
+        oidc: {
+            enabled: boolean;
+            displayName: string;
+            iconUrl: string;
+        };
+    };
+    membership: {
+        enabled: boolean;
+        paymentMethods: string[];
+        serviceNotice: string;
     };
     storage: {
         mode: string;
@@ -285,6 +307,45 @@ export type AdminPrivateSettings = {
         linuxDo: {
             clientId: string;
             clientSecret: string;
+        };
+        oidc: {
+            issuer: string;
+            clientId: string;
+            clientSecret: string;
+            scopes: string;
+            usernameClaim: string;
+            displayNameClaim: string;
+            avatarClaim: string;
+        };
+    };
+    payment: {
+        zpay: {
+            enabled: boolean;
+            pid: string;
+            key: string;
+            gatewayUrl: string;
+            notifyUrl: string;
+            returnUrl: string;
+        };
+        alipay: {
+            enabled: boolean;
+            appId: string;
+            privateKey: string;
+            publicKey: string;
+            gatewayUrl: string;
+            notifyUrl: string;
+            returnUrl: string;
+            sandbox: boolean;
+        };
+        wechat: {
+            enabled: boolean;
+            appId: string;
+            mchId: string;
+            apiKey: string;
+            apiV3Key: string;
+            notifyUrl: string;
+            serialNo: string;
+            mchPrivateKey: string;
         };
     };
     storage: {
@@ -337,4 +398,40 @@ export type StorageCapacityResult = {
 
 export async function measureAdminStorageProvider(token: string, payload: { index: number; provider: AdminStorageProvider }) {
     return apiPost<StorageCapacityResult>("/api/admin/storage/measure", payload, token);
+}
+
+export type AdminMembershipPlanQuery = {
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+};
+
+export async function fetchAdminMembershipPlans(token: string, query: AdminMembershipPlanQuery = {}) {
+    return apiGet<MembershipPlanListResponse>("/api/admin/membership-plans", compactApiParams(query), token);
+}
+
+export async function saveAdminMembershipPlan(token: string, plan: Partial<MembershipPlan>) {
+    return apiPost<MembershipPlan>("/api/admin/membership-plans", plan, token);
+}
+
+export async function deleteAdminMembershipPlan(token: string, id: string) {
+    return apiDelete<boolean>(`/api/admin/membership-plans/${encodeURIComponent(id)}`, token);
+}
+
+export type AdminMembershipOrderQuery = {
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+};
+
+export async function fetchAdminMembershipOrders(token: string, query: AdminMembershipOrderQuery = {}) {
+    return apiGet<MembershipOrderListResponse>("/api/admin/membership-orders", compactApiParams(query), token);
+}
+
+export async function markAdminMembershipOrderPaid(token: string, id: string, paymentId?: string) {
+    return apiPost<MembershipOrder>(`/api/admin/membership-orders/${encodeURIComponent(id)}/pay`, { paymentId }, token);
+}
+
+export async function deleteAdminMembershipOrder(token: string, id: string) {
+    return apiDelete<boolean>(`/api/admin/membership-orders/${encodeURIComponent(id)}`, token);
 }
