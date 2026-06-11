@@ -32,6 +32,10 @@ func AIResponses(w http.ResponseWriter, r *http.Request) {
 	proxyAIRequest(w, r, "/responses")
 }
 
+func AIAudioSpeech(w http.ResponseWriter, r *http.Request) {
+	proxyAIRequest(w, r, "/audio/speech")
+}
+
 func AIVideos(w http.ResponseWriter, r *http.Request) {
 	proxyAIRequest(w, r, "/videos")
 }
@@ -49,7 +53,7 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 	user, _ := service.UserFromContext(r.Context())
 	modelName := r.URL.Query().Get("model")
 	if strings.TrimSpace(modelName) == "" {
-		modelName = "Agnes-Video-V2.0"
+		modelName = "doubao-seedance-2.0"
 	}
 	channel, err := service.SelectModelChannelForModel(modelName, r.Header.Get("X-Model-Channel-ID"))
 	if err != nil {
@@ -57,13 +61,14 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	request, err := http.NewRequest(http.MethodGet, service.BuildModelChannelURL(channel, path), nil)
+	targetPath := normalizeVideoProxyPathForChannel(channel, path)
+	request, err := http.NewRequest(http.MethodGet, service.BuildModelChannelURL(channel, targetPath), nil)
 	if err != nil {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	request.Header.Set("Authorization", "Bearer "+channel.APIKey)
-	copyAIResponse(w, request, channel, aiLogContext{StartedAt: startedAt, Endpoint: path, Method: http.MethodGet, Model: modelName, Channel: channel, UserID: user.ID, UserDisplayName: firstNonEmpty(user.DisplayName, user.Username), RequestBody: summarizeQueryParams(r.URL.Query())}, nil)
+	copyAIResponse(w, request, channel, aiLogContext{StartedAt: startedAt, Endpoint: targetPath, Method: http.MethodGet, Model: modelName, Channel: channel, UserID: user.ID, UserDisplayName: firstNonEmpty(user.DisplayName, user.Username), RequestBody: summarizeQueryParams(r.URL.Query())}, nil)
 }
 
 func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
@@ -92,9 +97,10 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	request, err := http.NewRequest(http.MethodPost, service.BuildModelChannelURL(channel, path), bytes.NewReader(body))
+	targetPath := normalizeVideoProxyPathForChannel(channel, path)
+	request, err := http.NewRequest(http.MethodPost, service.BuildModelChannelURL(channel, targetPath), bytes.NewReader(body))
 	if err != nil {
-		log.Printf("AI proxy build request failed: url=%s err=%v", service.BuildModelChannelURL(channel, path), err)
+		log.Printf("AI proxy build request failed: url=%s err=%v", service.BuildModelChannelURL(channel, targetPath), err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -102,13 +108,13 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}
-	if err := service.ConsumeUserCredits(user.ID, modelName, credits, path); err != nil {
+	if err := service.ConsumeUserCredits(user.ID, modelName, credits, targetPath); err != nil {
 		FailError(w, err)
 		return
 	}
 	copyAIResponse(w, request, channel, aiLogContext{
 		StartedAt:       startedAt,
-		Endpoint:        path,
+		Endpoint:        targetPath,
 		Method:          http.MethodPost,
 		Model:           modelName,
 		Channel:         channel,
@@ -117,10 +123,23 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		Credits:         credits,
 		RequestBody:     summarizeAIRequest(body, contentType),
 	}, func() {
-		if err := service.RefundUserCredits(user.ID, modelName, credits, path); err != nil {
+		if err := service.RefundUserCredits(user.ID, modelName, credits, targetPath); err != nil {
 			log.Printf("AI proxy refund credits failed: user=%s model=%s credits=%d err=%v", user.ID, modelName, credits, err)
 		}
 	})
+}
+
+func normalizeVideoProxyPathForChannel(channel model.ModelChannel, path string) string {
+	if !strings.Contains(strings.ToLower(channel.BaseURL), "/api/plan/v3") {
+		return path
+	}
+	if path == "/videos" {
+		return "/contents/generations/tasks"
+	}
+	if strings.HasPrefix(path, "/videos/") && !strings.HasSuffix(path, "/content") {
+		return "/contents/generations/tasks/" + strings.TrimPrefix(path, "/videos/")
+	}
+	return path
 }
 
 type aiLogContext struct {
@@ -270,6 +289,9 @@ func summarizeMultipartAIRequest(body []byte, contentType string) string {
 }
 
 func readUpstreamAIErrorMessage(body []byte, statusCode int) string {
+	if detail := aiUpstreamErrorDetail(body); detail != "" {
+		return detail
+	}
 	var payload struct {
 		Error *struct {
 			Message string `json:"message"`
@@ -292,6 +314,51 @@ func readUpstreamAIErrorMessage(body []byte, statusCode int) string {
 		return fmt.Sprintf("AI 接口请求失败：%d", statusCode)
 	}
 	return "AI 接口请求失败"
+}
+
+func aiUpstreamErrorDetail(body []byte) string {
+	var payload struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Msg     string `json:"msg"`
+		Message string `json:"message"`
+	}
+	if len(body) == 0 || json.Unmarshal(body, &payload) != nil {
+		return safeUpstreamText(string(body))
+	}
+	code := strings.TrimSpace("")
+	message := strings.TrimSpace("")
+	if payload.Error != nil {
+		code = strings.TrimSpace(payload.Error.Code)
+		message = strings.TrimSpace(payload.Error.Message)
+	}
+	if message == "" {
+		message = strings.TrimSpace(firstNonEmpty(payload.Msg, payload.Message))
+	}
+	detail := strings.TrimSpace(strings.Join([]string{code, message}, " "))
+	if isSensitiveVideoError(code, message) {
+		explain := "参考视频疑似包含真人、隐私或敏感内容，请改用不含真人的视频、官方允许的模型产物，或使用已授权的 asset:// 素材。"
+		if detail == "" {
+			return explain
+		}
+		return safeUpstreamText(detail + "；" + explain)
+	}
+	return safeUpstreamText(detail)
+}
+
+func safeUpstreamText(text string) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= 300 {
+		return string(runes)
+	}
+	return string(runes[:300]) + "..."
+}
+
+func isSensitiveVideoError(code string, message string) bool {
+	value := strings.ToLower(code + " " + message)
+	return strings.Contains(value, "sensitive") || strings.Contains(value, "privacy") || strings.Contains(value, "real person")
 }
 
 func redactLargeImages(value *any) {

@@ -5,11 +5,15 @@ import { useEffect, useState } from "react";
 import { ReloadOutlined } from "@ant-design/icons";
 
 import { ModelPicker } from "@/components/model-picker";
-import { fetchImageModels } from "@/services/api/image";
+import { AudioSettingsPanel } from "@/components/audio-settings-panel";
+import { VideoSettingsPanel } from "@/components/video-settings-panel";
+import { canvasThemes } from "@/lib/canvas-theme";
+import { fetchChannelModels, type AdminModelChannel } from "@/services/api/admin";
 import { fetchUserConfig, measureUserStorageProvider, syncUserModelConfig, syncUserStorageProvider } from "@/services/api/user-config";
 import { defaultUserStorageProvider, saveUserStorageProvider, USER_STORAGE_PROVIDER_KEY, type UserStorageProvider, clearStorageConfigCache as clearImageStorageCache } from "@/services/image-storage";
 import { clearStorageConfigCache as clearFileStorageCache } from "@/services/file-storage";
 import { normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type LocalModelChannel } from "@/stores/use-config-store";
+import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 export function AppConfigModal() {
@@ -30,6 +34,7 @@ export function AppConfigModal() {
     const allowCustomChannel = modelChannel?.allowCustomChannel === true;
     const effectiveMode = allowCustomChannel ? config.channelMode : "remote";
     const modelConfig = effectiveMode === "remote" ? effectiveConfig : config;
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [userStorage, setUserStorage] = useState<UserStorageProvider>(() => defaultUserStorageProvider());
     const [syncingModel, setSyncingModel] = useState(false);
     const [syncingStorage, setSyncingStorage] = useState(false);
@@ -97,7 +102,7 @@ export function AppConfigModal() {
         if (!allowCustomChannel && config.channelMode !== "remote") updateConfig("channelMode", "remote");
 
         const isLocalIncomplete = effectiveMode === "local" && (!config.baseUrl.trim() || !config.apiKey.trim());
-        const isModelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.videoModel.trim() || !modelConfig.textModel.trim();
+        const isModelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.videoModel.trim() || !modelConfig.textModel.trim() || !modelConfig.audioModel.trim();
 
         setSaving(true);
         try {
@@ -132,10 +137,9 @@ export function AppConfigModal() {
             clearImageStorageCache();
             clearFileStorageCache();
 
-            let cloudSyncActive = false;
             if (token) {
                 const userConfig = await fetchUserConfig(token);
-                cloudSyncActive = userConfig.syncCapabilities?.userData === true && userConfig.syncCapabilities?.assets === true;
+                const cloudSyncActive = userConfig.syncCapabilities?.userData === true && userConfig.syncCapabilities?.assets === true;
                 
                 if (cloudSyncActive) {
                     const { checkLocalAssetsExist, migrateLocalAssetsToCloud } = await import("@/services/storage-migration");
@@ -174,16 +178,10 @@ export function AppConfigModal() {
             if (isLocalIncomplete || isModelIncomplete) {
                 message.warning("部分通道的模型或直连密钥尚未配置完整，配置已保存并同步");
             } else {
-                message.success(cloudSyncActive ? "配置已保存。页面即将重新加载以启用同步..." : (shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存"));
+                message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
             }
             setConfigDialogOpen(false);
             clearPromptContinue();
-
-            if (cloudSyncActive) {
-                window.setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
-            }
         } catch (error) {
             message.error(error instanceof Error ? `同步配置失败：${error.message}` : "同步配置失败");
         } finally {
@@ -256,13 +254,7 @@ export function AppConfigModal() {
                 }
             }
 
-            message.success(cloudSyncActive ? "S3/R2 配置已同步。页面即将重新加载以启用同步..." : "S3/R2 配置已同步到账号");
-            
-            if (cloudSyncActive) {
-                window.setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
-            }
+            message.success("S3/R2 配置已同步到账号");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "S3/R2 配置同步失败");
         } finally {
@@ -294,9 +286,13 @@ export function AppConfigModal() {
 
     const refreshModels = async () => {
         if (effectiveMode === "remote") return;
+        if (!token) {
+            message.error("请先登录后再拉取渠道模型");
+            return;
+        }
         const channels = normalizeLocalChannels(config);
-        if (channels.some((channel) => !channel.baseUrl.trim() || !channel.apiKey.trim())) {
-            message.error("请先填写所有本地渠道的 Base URL 和 API Key");
+        if (channels.some((channel) => !channel.baseUrl.trim())) {
+            message.error("请先填写所有本地渠道的 Base URL");
             return;
         }
         setLoadingModels(true);
@@ -304,7 +300,7 @@ export function AppConfigModal() {
             const nextChannels = await Promise.all(
                 channels.map(async (channel) => ({
                     ...channel,
-                    models: await fetchImageModels({ ...config, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey, localChannels: [{ ...channel, models: channel.models }], model: channel.models[0] || config.model }),
+                    models: await fetchChannelModels(token, { channel: localChannelToAdminChannel(channel) }),
                 })),
             );
             updateLocalChannels(nextChannels);
@@ -312,6 +308,7 @@ export function AppConfigModal() {
             if (models.length && !models.includes(config.imageModel)) updateConfig("imageModel", models[0]);
             if (models.length && !models.includes(config.videoModel)) updateConfig("videoModel", models[0]);
             if (models.length && !models.includes(config.textModel)) updateConfig("textModel", models[0]);
+            if (models.length && !models.includes(config.audioModel)) updateConfig("audioModel", models[0]);
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -327,6 +324,7 @@ export function AppConfigModal() {
         if (!normalized.some((channel) => channel.id === config.imageChannelId)) updateConfig("imageChannelId", normalized[0]?.id || "");
         if (!normalized.some((channel) => channel.id === config.videoChannelId)) updateConfig("videoChannelId", normalized[0]?.id || "");
         if (!normalized.some((channel) => channel.id === config.textChannelId)) updateConfig("textChannelId", normalized[0]?.id || "");
+        if (!normalized.some((channel) => channel.id === config.audioChannelId)) updateConfig("audioChannelId", normalized[0]?.id || "");
         updateConfig("baseUrl", normalized[0]?.baseUrl || config.baseUrl);
         updateConfig("apiKey", normalized[0]?.apiKey || config.apiKey);
     };
@@ -345,14 +343,30 @@ export function AppConfigModal() {
 
     const uniqueModels = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
 
+    const openLocalChannelModelSelector = (channel: LocalModelChannel) => {
+        const current = uniqueModels(channel.models || []);
+        setModelSelectExisting(current);
+        setModelSelectSource([]);
+        setModelSelectSelected(current);
+        setSelectingChannelId(channel.id);
+        setModelSelectKeyword("");
+        setModelSelectNewModel("");
+        setModelSelectTab("current");
+        setModelSelectorOpen(true);
+    };
+
     const refreshLocalChannelModels = async (channel: LocalModelChannel) => {
-        if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
-            message.error("请先填写该渠道的 Base URL 和 API Key");
+        if (!token) {
+            message.error("请先登录后再拉取渠道模型");
+            return;
+        }
+        if (!channel.baseUrl.trim()) {
+            message.error("请先填写该渠道的 Base URL");
             return;
         }
         setLoadingModels(true);
         try {
-            const models = await fetchImageModels({ ...config, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey, localChannels: [{ ...channel, models: channel.models }], model: channel.models[0] || config.model });
+            const models = await fetchChannelModels(token, { channel: localChannelToAdminChannel(channel) });
             
             const current = uniqueModels(channel.models || []);
             setModelSelectExisting(current);
@@ -361,7 +375,7 @@ export function AppConfigModal() {
             setSelectingChannelId(channel.id);
             setModelSelectKeyword("");
             setModelSelectNewModel("");
-            setModelSelectTab("new");
+            setModelSelectTab(models.length ? "new" : "current");
             setModelSelectorOpen(true);
             message.success(`已获取 ${models.length} 个模型，请选择后确认`);
         } catch (error) {
@@ -374,9 +388,13 @@ export function AppConfigModal() {
     const refetchModelsInSelector = async () => {
         const channel = normalizeLocalChannels(config).find((c) => c.id === selectingChannelId);
         if (!channel) return;
+        if (!token) {
+            message.error("请先登录后再拉取渠道模型");
+            return;
+        }
         setLoadingModels(true);
         try {
-            const models = await fetchImageModels({ ...config, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey, localChannels: [{ ...channel, models: channel.models }], model: channel.models[0] || config.model });
+            const models = await fetchChannelModels(token, { channel: localChannelToAdminChannel(channel) });
             const current = uniqueModels(modelSelectSelected);
             setModelSelectExisting(current);
             setModelSelectSource(uniqueModels(models));
@@ -491,8 +509,8 @@ export function AppConfigModal() {
                                             <Input value={channel.baseUrl} placeholder="Base URL" onChange={(event) => patchLocalChannel(channel.id, { baseUrl: event.target.value })} />
                                             <Input.Password value={channel.apiKey} placeholder="API Key" onChange={(event) => patchLocalChannel(channel.id, { apiKey: event.target.value })} />
                                             <div className="flex gap-2">
-                                                <Button size="small" loading={loadingModels} onClick={() => void refreshLocalChannelModels(channel)}>
-                                                    拉取
+                                                <Button size="small" onClick={() => openLocalChannelModelSelector(channel)}>
+                                                    选择模型
                                                 </Button>
                                                 <Button size="small" danger disabled={index === 0 && normalizeLocalChannels(config).length === 1} onClick={() => removeLocalChannel(channel.id)}>
                                                     删除
@@ -511,9 +529,7 @@ export function AppConfigModal() {
                                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                     <span className="text-xs text-stone-500">自动同步</span>
                                     <Switch size="small" checked={config.syncModelConfig} onChange={(checked) => updateConfig("syncModelConfig", checked)} />
-                                    <Button size="small" loading={loadingModels} onClick={() => void refreshModels()}>
-                                        拉取全部渠道
-                                    </Button>
+                                    <span className="text-xs text-stone-500">请在各渠道的“选择模型”弹窗中拉取和勾选模型</span>
                                 </div>
                             </div>
                         </>
@@ -536,7 +552,7 @@ export function AppConfigModal() {
                             ) : null}
                         </div>
                     )}
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <Form.Item label="默认生图模型" className="mb-4">
                             <ModelPicker config={modelConfig} value={modelConfig.imageModel} channelId={modelConfig.imageChannelId} onChange={(model, channelId) => { updateConfig("imageModel", model); if (channelId) updateConfig("imageChannelId", channelId); }} fullWidth />
                         </Form.Item>
@@ -546,8 +562,11 @@ export function AppConfigModal() {
                         <Form.Item label="默认文本模型" className="mb-4">
                             <ModelPicker config={modelConfig} value={modelConfig.textModel} channelId={modelConfig.textChannelId} onChange={(model, channelId) => { updateConfig("textModel", model); if (channelId) updateConfig("textChannelId", channelId); }} fullWidth />
                         </Form.Item>
+                        <Form.Item label="默认音频模型" className="mb-4">
+                            <ModelPicker config={modelConfig} value={modelConfig.audioModel} channelId={modelConfig.audioChannelId} onChange={(model, channelId) => { updateConfig("audioModel", model); if (channelId) updateConfig("audioChannelId", channelId); }} fullWidth />
+                        </Form.Item>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                         <Form.Item label="生图 API 接口" className="mb-4">
                             <Select
                                 value={config.apiMode}
@@ -560,6 +579,9 @@ export function AppConfigModal() {
                         </Form.Item>
                         <Form.Item label="请求超时（秒）" className="mb-4">
                             <Input value={config.timeout} inputMode="numeric" onChange={(event) => updateConfig("timeout", event.target.value)} />
+                        </Form.Item>
+                        <Form.Item label="失败重试次数" className="mb-4">
+                            <Input value={config.retryAttempts} inputMode="numeric" onChange={(event) => updateConfig("retryAttempts", event.target.value)} />
                         </Form.Item>
                         <Form.Item label="请求中间步骤图像数" className="mb-4">
                             <Select
@@ -579,6 +601,14 @@ export function AppConfigModal() {
                         <FeatureSwitch title="流式传输" description="开启后请求中追加 stream，支持读取中间图片事件并避免长时间无数据。" checked={config.streamImages} onChange={(checked) => updateConfig("streamImages", checked)} />
                         <FeatureSwitch title="返回 Base64 图片数据" description="开启后 Image API 请求会追加 response_format: b64_json。" checked={config.responseFormatB64Json} onChange={(checked) => updateConfig("responseFormatB64Json", checked)} />
                         <FeatureSwitch title="Codex CLI 兼容模式" description="开启后减少不兼容参数，并追加防提示词改写前缀。" checked={config.codexCli} onChange={(checked) => updateConfig("codexCli", checked)} />
+                    </div>
+                    <div className="mb-4 grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
+                            <VideoSettingsPanel config={{ ...modelConfig, model: modelConfig.videoModel }} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />
+                        </div>
+                        <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
+                            <AudioSettingsPanel config={{ ...modelConfig, model: modelConfig.audioModel }} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />
+                        </div>
                     </div>
                     {allowUserStorageProvider ? (
                         <div className="mb-4 rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-900/50">
@@ -761,4 +791,19 @@ function formatStorageBytes(bytes: number) {
         index += 1;
     }
     return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+}
+
+function localChannelToAdminChannel(channel: LocalModelChannel): AdminModelChannel {
+    return {
+        id: channel.id,
+        protocol: "openai",
+        name: channel.name,
+        baseUrl: channel.baseUrl,
+        apiKey: channel.apiKey,
+        models: channel.models || [],
+        weight: 1,
+        timeout: 600,
+        enabled: true,
+        remark: "",
+    };
 }

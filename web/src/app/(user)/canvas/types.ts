@@ -14,10 +14,11 @@ export enum CanvasNodeType {
     Text = "text",
     Config = "config",
     Video = "video",
+    Audio = "audio",
 }
 
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
-export type CanvasGenerationMode = "text" | "image" | "video";
+export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 
 export type CanvasNodeMetadata = {
@@ -34,6 +35,7 @@ export type CanvasNodeMetadata = {
     imageChannelId?: string;
     videoChannelId?: string;
     textChannelId?: string;
+    audioChannelId?: string;
     size?: string;
     quality?: string;
     outputFormat?: "png" | "jpeg" | "webp";
@@ -42,7 +44,13 @@ export type CanvasNodeMetadata = {
     count?: number;
     seconds?: string;
     vquality?: string;
+    audioVoice?: string;
+    audioFormat?: string;
+    audioSpeed?: string;
+    audioInstructions?: string;
+    retryAttempts?: string;
     references?: string[];
+    maskDataUrl?: string;
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;

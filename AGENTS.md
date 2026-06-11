@@ -67,6 +67,8 @@
 ## 文档规范
 
 - README 保持简洁，只放项目介绍、核心功能、快速开始和文档入口。
+- 文档使用根目录 Markdown 体系，不使用新文档站 `docs/content/docs/...` 结构。
+- `docs/index.md` 放给 AI 使用的文档索引。
 - 详细功能介绍写到 `docs/features.md`。
 - 后续待办写到 `docs/todo.md`。
 - 已实现但还需要用户测试确认的事项写到 `docs/pending-test.md`。

@@ -26,12 +26,13 @@ export async function exportAssets(assets: Asset[]) {
 
     await Promise.all(
         assets.map(async (asset) => {
-            const storageKey = asset.kind === "image" || asset.kind === "video" ? asset.data.storageKey : undefined;
+            if (asset.kind !== "image" && asset.kind !== "video" && asset.kind !== "audio") return;
+            const storageKey = asset.data.storageKey;
             if (!storageKey) return;
             const blob = asset.kind === "image" ? await getImageBlob(storageKey) : await getMediaBlob(storageKey);
             if (!blob) return;
             const path = `files/${safeFileName(storageKey)}.${fileExtension(blob.type, asset.kind)}`;
-            const fallbackMimeType = asset.kind === "image" || asset.kind === "video" ? asset.data.mimeType : "application/octet-stream";
+            const fallbackMimeType = asset.data.mimeType || "application/octet-stream";
             files.push({ storageKey, path, mimeType: blob.type || fallbackMimeType, bytes: blob.size });
             zipFiles.push({ name: path, data: blob });
         }),
@@ -69,5 +70,10 @@ function fileExtension(mimeType: string, kind: Asset["kind"]) {
     if (mimeType.includes("gif")) return "gif";
     if (mimeType.includes("mp4")) return "mp4";
     if (mimeType.includes("webm")) return "webm";
+    if (mimeType.includes("mpeg")) return "mp3";
+    if (mimeType.includes("wav")) return "wav";
+    if (mimeType.includes("aac")) return "aac";
+    if (mimeType.includes("ogg")) return "ogg";
+    if (mimeType.includes("mp4") && kind === "audio") return "m4a";
     return kind === "image" ? "png" : "bin";
 }

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Image as ImageIcon, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, Music2, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
@@ -339,6 +339,7 @@ const nodeContentRenderers = {
     [CanvasNodeType.Image]: ImageNodeContent,
     [CanvasNodeType.Config]: EmptyImageContent,
     [CanvasNodeType.Video]: VideoNodeContent,
+    [CanvasNodeType.Audio]: AudioNodeContent,
 } satisfies Record<CanvasNodeType, (props: NodeContentRendererProps) => ReactNode>;
 
 function LoadingContent({ node, theme }: Pick<NodeContentRendererProps, "node" | "theme">) {
@@ -489,6 +490,21 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
             </div>
         );
     return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+}
+
+function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
+    if (!node.metadata?.content)
+        return (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
+                <Music2 className="size-7 opacity-35" />
+                <span className="text-sm">音频节点</span>
+            </div>
+        );
+    return (
+        <div className="flex h-full w-full items-center justify-center px-5">
+            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+        </div>
+    );
 }
 
 function ImageContent({

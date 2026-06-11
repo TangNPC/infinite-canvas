@@ -614,7 +614,7 @@ async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: num
     );
 }
 
-async function requestImageEditSingle(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<GeneratedImage[]> {
+async function requestImageEditSingle(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams, maskDataUrl?: string): Promise<GeneratedImage[]> {
     const mime = MIME_MAP[params.outputFormat];
     const formData = new FormData();
     formData.set("model", config.model);
@@ -632,6 +632,7 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
     }
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => formData.append("image", file));
+    if (maskDataUrl) formData.set("mask", dataUrlToFile({ id: "mask", name: "mask.png", type: "image/png", dataUrl: maskDataUrl }));
 
     return requestAndParseImages(
         config,
@@ -751,7 +752,7 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
     }
 }
 
-async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[]): Promise<GeneratedImage[]> {
+async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: { maskDataUrl?: string } = {}): Promise<GeneratedImage[]> {
     const params = createImageRequestParams(config);
     const inputImageDataUrls = references.length ? await Promise.all(references.map((image) => imageToDataUrl(image))) : [];
     const useConcurrentSingleRequests = config.apiMode === "responses" || config.codexCli || config.streamImages;
@@ -762,16 +763,16 @@ async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?
         const firstError = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
         throw firstError?.reason || new Error("所有并发请求均失败");
     }
-    if (references.length && isAgnesImageModel(config.model)) {
+    if (references.length && isAgnesImageModel(config.model) && !options.maskDataUrl) {
         return requestAgnesImageEdit(config, prompt, references, params);
     }
-    if (config.apiMode === "responses") return requestResponsesSingle(config, prompt, inputImageDataUrls, params);
-    return references.length ? requestImageEditSingle(config, prompt, references, params) : requestImageGenerationSingle(config, prompt, params);
+    if (config.apiMode === "responses" && !options.maskDataUrl) return requestResponsesSingle(config, prompt, inputImageDataUrls, params);
+    return references.length ? requestImageEditSingle(config, prompt, references, params, options.maskDataUrl) : requestImageGenerationSingle(config, prompt, params);
 }
 
 export async function requestGeneration(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string) {
     try {
-        const images = await requestImages(config, prompt, []);
+        const images = await withAiRequestRetry(config, () => requestImages(config, prompt, []));
         refreshRemoteUser(config);
         return images;
     } catch (error) {
@@ -780,15 +781,30 @@ export async function requestGeneration(config: AiConfig & { seedIndex?: number;
     }
 }
 
-export async function requestEdit(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[]) {
+export async function requestEdit(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: { maskDataUrl?: string } = {}) {
     try {
-        const images = await requestImages(config, prompt, references);
+        const images = await withAiRequestRetry(config, () => requestImages(config, prompt, references, options));
         refreshRemoteUser(config);
         return images;
     } catch (error) {
         if (error instanceof ImageRequestError) throw error;
         throw new Error(error instanceof Error ? error.message : "请求失败");
     }
+}
+
+async function withAiRequestRetry<T>(config: AiConfig, run: () => Promise<T>): Promise<T> {
+    const retries = normalizeBoundedInteger(config.retryAttempts, 0, 0, 5);
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            return await run();
+        } catch (error) {
+            lastError = error;
+            if (attempt >= retries) break;
+            await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
+        }
+    }
+    throw lastError;
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: ChatCompletionMessage[], onDelta: (text: string) => void) {

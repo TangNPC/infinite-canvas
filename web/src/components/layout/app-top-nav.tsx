@@ -1,30 +1,19 @@
 "use client";
 
-import { Menu, Settings2 } from "lucide-react";
+import { Menu } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { AppConfigModal } from "@/components/layout/app-config-modal";
-import { GitHubLink } from "@/components/layout/github-link";
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
-import { VersionReleaseModal } from "@/components/layout/version-release-modal";
-import { useConfigStore } from "@/stores/use-config-store";
-import { useThemeStore } from "@/stores/use-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
 export function AppTopNav() {
     const pathname = usePathname();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const theme = useThemeStore((state) => state.theme);
-    const setTheme = useThemeStore((state) => state.setTheme);
-    const user = useUserStore((state) => state.user);
-    const isReady = useUserStore((state) => state.isReady);
     const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
@@ -80,33 +69,7 @@ export function AppTopNav() {
                         </div>
 
                         <div className="my-auto flex h-9 min-w-0 items-center justify-end gap-2 justify-self-end whitespace-nowrap">
-                            {isReady && user ? (
-                                <UserStatusActions />
-                            ) : (
-                                <>
-                                    <button
-                                        type="button"
-                                        className="inline-flex size-8 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4"
-                                        onClick={() => openConfigDialog(false)}
-                                        aria-label="配置"
-                                        title="配置"
-                                    >
-                                        <Settings2 className="size-4" />
-                                    </button>
-                                    <AnimatedThemeToggler
-                                        theme={theme}
-                                        onThemeChange={setTheme}
-                                        className="inline-flex size-8 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4"
-                                        aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-                                        title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-                                    />
-                                    <VersionReleaseModal />
-                                    <GitHubLink />
-                                    <Link href="/login" className="text-sm font-medium text-stone-600 underline-offset-4 transition hover:text-stone-950 hover:underline dark:text-stone-300 dark:hover:text-stone-100">
-                                        登录
-                                    </Link>
-                                </>
-                            )}
+                            <UserStatusActions />
                         </div>
                     </div>
                 </header>

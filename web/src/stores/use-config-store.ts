@@ -23,13 +23,16 @@ export type AiConfig = {
     imageChannelId: string;
     videoChannelId: string;
     textChannelId: string;
+    audioChannelId: string;
     activeChannelId: string;
     apiMode: "images" | "responses";
     model: string;
     imageModel: string;
     videoModel: string;
     textModel: string;
+    audioModel: string;
     timeout: string;
+    retryAttempts: string;
     streamImages: boolean;
     streamPartialImages: string;
     responseFormatB64Json: boolean;
@@ -37,6 +40,12 @@ export type AiConfig = {
     videoSeconds: string;
     videoCount: string;
     vquality: string;
+    videoGenerateAudio: string;
+    videoWatermark: string;
+    audioVoice: string;
+    audioFormat: string;
+    audioSpeed: string;
+    audioInstructions: string;
     systemPrompt: string;
     systemPrompts: {
         image: string;
@@ -55,6 +64,7 @@ export type AiConfig = {
     outputCompression: string;
     moderation: "auto" | "low";
     count: string;
+    canvasImageCount: string;
     seed?: string;
 };
 
@@ -68,13 +78,16 @@ export const defaultConfig: AiConfig = {
     imageChannelId: "",
     videoChannelId: "",
     textChannelId: "",
+    audioChannelId: "",
     activeChannelId: "",
     apiMode: "images",
     model: "gpt-image-2",
     imageModel: "gpt-image-2",
-    videoModel: "Agnes-Video-V2.0",
+    videoModel: "doubao-seedance-2.0",
     textModel: "gpt-5.5",
+    audioModel: "gpt-4o-mini-tts",
     timeout: "600",
+    retryAttempts: "0",
     streamImages: false,
     streamPartialImages: "1",
     responseFormatB64Json: true,
@@ -82,6 +95,12 @@ export const defaultConfig: AiConfig = {
     videoSeconds: "6",
     videoCount: "1",
     vquality: "720",
+    videoGenerateAudio: "true",
+    videoWatermark: "false",
+    audioVoice: "alloy",
+    audioFormat: "mp3",
+    audioSpeed: "1",
+    audioInstructions: "",
     systemPrompt: "",
     systemPrompts: { image: "", video: "", text: "", workflow: "", workflowAgent: "" },
     syncModelConfig: false,
@@ -94,6 +113,7 @@ export const defaultConfig: AiConfig = {
     outputCompression: "100",
     moderation: "auto",
     count: "1",
+    canvasImageCount: "3",
     seed: "",
 };
 
@@ -119,6 +139,7 @@ function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSetti
     const imageChannelId = validChannelId(config.imageChannelId, modelChannel.channels, config.imageModel) || channelIdForModel(modelChannel.channels, modelChannel.defaultImageModel || fallbackModel);
     const videoChannelId = validChannelId(config.videoChannelId, modelChannel.channels, config.videoModel) || channelIdForModel(modelChannel.channels, modelChannel.defaultVideoModel || fallbackModel);
     const textChannelId = validChannelId(config.textChannelId, modelChannel.channels, config.textModel) || channelIdForModel(modelChannel.channels, modelChannel.defaultTextModel || fallbackModel);
+    const audioChannelId = validChannelId(config.audioChannelId, modelChannel.channels, config.audioModel) || channelIdForModel(modelChannel.channels, config.audioModel || fallbackModel);
     return {
         ...config,
         channelMode,
@@ -128,9 +149,11 @@ function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSetti
         imageModel: models.includes(config.imageModel) ? config.imageModel : modelChannel.defaultImageModel || fallbackModel,
         videoModel: models.includes(config.videoModel) ? config.videoModel : modelChannel.defaultVideoModel || fallbackModel,
         textModel: models.includes(config.textModel) ? config.textModel : modelChannel.defaultTextModel || fallbackModel,
+        audioModel: models.includes(config.audioModel) ? config.audioModel : config.audioModel || fallbackModel,
         imageChannelId,
         videoChannelId,
         textChannelId,
+        audioChannelId,
         systemPrompt: modelChannel.systemPrompts?.image || modelChannel.systemPrompt,
         systemPrompts: modelChannel.systemPrompts || defaultConfig.systemPrompts,
     };
@@ -215,12 +238,14 @@ export const useConfigStore = create<ConfigStore>()(
                         imageChannelId: config.imageChannelId || localChannels[0]?.id || "",
                         videoChannelId: config.videoChannelId || localChannels[0]?.id || "",
                         textChannelId: config.textChannelId || localChannels[0]?.id || "",
+                        audioChannelId: config.audioChannelId || localChannels[0]?.id || "",
                         activeChannelId: config.activeChannelId || "",
                         channelMode: config.channelMode || "remote",
                         apiMode: config.apiMode === "responses" ? "responses" : "images",
                         imageModel: config.imageModel || config.model,
-                        videoModel: config.videoModel || "Agnes-Video-V2.0",
+                        videoModel: config.videoModel && !config.videoModel.toLowerCase().includes("agnes-video") ? config.videoModel : defaultConfig.videoModel,
                         textModel: config.textModel || config.model,
+                        audioModel: config.audioModel || defaultConfig.audioModel,
                         timeout: config.timeout || "600",
                         streamPartialImages: config.streamPartialImages || "1",
                         responseFormatB64Json: config.responseFormatB64Json !== false,
@@ -229,7 +254,15 @@ export const useConfigStore = create<ConfigStore>()(
                         moderation: config.moderation === "low" ? "low" : "auto",
                         videoSeconds: config.videoSeconds || "6",
                         videoCount: config.videoCount || "1",
+                        retryAttempts: config.retryAttempts || "0",
                         vquality: config.vquality || "720",
+                        videoGenerateAudio: config.videoGenerateAudio || "true",
+                        videoWatermark: config.videoWatermark || "false",
+                        audioVoice: config.audioVoice || "alloy",
+                        audioFormat: config.audioFormat || "mp3",
+                        audioSpeed: config.audioSpeed || "1",
+                        audioInstructions: config.audioInstructions || "",
+                        canvasImageCount: config.canvasImageCount || "3",
                         systemPrompts: { ...defaultConfig.systemPrompts, ...(config.systemPrompts || {}) },
                         syncModelConfig: config.syncModelConfig === true,
                         syncStorageConfig: config.syncStorageConfig === true,
@@ -248,15 +281,39 @@ export function useEffectiveConfig() {
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {
-    const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-    const apiBaseUrl = normalizedBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    const normalizedBaseUrl = normalizeArkPlanBaseUrl(baseUrl.trim().replace(/\/+$/, ""));
+    const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
+    const hasApiVersion = lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/api/v3") || lowerBaseUrl.endsWith("/api/plan/v3");
+    const apiBaseUrl = hasApiVersion ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
+}
+
+function normalizeArkPlanBaseUrl(baseUrl: string) {
+    try {
+        const url = new URL(baseUrl);
+        const path = url.pathname.replace(/\/+$/, "");
+        const lowerPath = path.toLowerCase();
+        const arkPlanIndex = lowerPath.indexOf("/api/plan/v3");
+        if (arkPlanIndex >= 0) {
+            url.pathname = path.slice(0, arkPlanIndex + "/api/plan/v3".length);
+            url.search = "";
+            url.hash = "";
+            return url.toString().replace(/\/+$/, "");
+        }
+    } catch {
+        // Keep string fallback below.
+    }
+    const marker = "ark.cn-beijing.volces.com/api/v3";
+    const lower = baseUrl.toLowerCase();
+    if (!lower.includes(marker)) return baseUrl;
+    return baseUrl.replace(/\/api\/v3.*$/i, "/api/plan/v3");
 }
 
 export function channelIdForActiveModel(config: AiConfig) {
     if (config.activeChannelId) return config.activeChannelId;
     if (config.model === config.videoModel) return config.videoChannelId;
     if (config.model === config.textModel) return config.textChannelId;
+    if (config.model === config.audioModel) return config.audioChannelId;
     return config.imageChannelId;
 }
 

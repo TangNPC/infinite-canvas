@@ -106,7 +106,7 @@ type GenerationLog = {
     workflowInputs?: Record<string, unknown>;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "apiMode" | "outputFormat" | "outputCompression" | "moderation" | "timeout" | "streamImages" | "streamPartialImages" | "responseFormatB64Json" | "codexCli">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "apiMode" | "outputFormat" | "outputCompression" | "moderation" | "timeout" | "retryAttempts" | "streamImages" | "streamPartialImages" | "responseFormatB64Json" | "codexCli"> & { channelId?: string; channelName?: string };
 type RequestSnapshot = { text: string; requestConfig: AiConfig; displayConfig: GenerationLogConfig; references: ReferenceImage[] };
 type GenerationCategory = { id: string; name: string; createdAt: number };
 type ResultViewMode = "all" | "category";
@@ -1126,7 +1126,7 @@ function WorkbenchPanel({
     if (layout === "bottom") {
         return (
             <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
-                <div className="pointer-events-auto w-full max-w-5xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
+                <div className="pointer-events-auto w-full max-w-7xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
                     <div className="flex flex-col gap-3">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                             <Input.TextArea
@@ -1155,7 +1155,7 @@ function WorkbenchPanel({
                                 </Button>
                             </div>
                         </div>
-                        <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[1.3fr_1.1fr_0.9fr_0.9fr_0.9fr_0.85fr_0.8fr_0.8fr_auto_auto] ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
+                        <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(170px,1.25fr)_minmax(120px,.9fr)_repeat(4,minmax(88px,.72fr))_minmax(82px,.62fr)_minmax(82px,.62fr)_auto_minmax(112px,auto)] ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
                             <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
                                 模型
                                 <ModelPicker
@@ -1192,6 +1192,7 @@ function WorkbenchPanel({
                             <QuickNumber label="压缩" value={config.outputCompression || "100"} min={0} max={100} disabled={(config.outputFormat || "png") === "png"} onChange={(value) => updateConfig("outputCompression", value)} />
                             <QuickSelect label="审核" value={config.moderation || "auto"} options={quickModerationOptions} onChange={(value) => updateConfig("moderation", value as AiConfig["moderation"])} />
                             <QuickNumber label="数量" value={config.count || "1"} min={1} max={10} onChange={(value) => updateConfig("count", value)} />
+                            <QuickNumber label="重试" value={config.retryAttempts || "0"} min={0} max={5} onChange={(value) => updateConfig("retryAttempts", value)} />
                             <ReferenceQuickActions references={references} onUploadReferences={onUploadReferences} />
                             <Button type="primary" className="h-11 min-w-28 rounded-xl hidden lg:inline-flex" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                                 {pendingCount ? `${pendingCount} 生成中` : "开始创作"}
@@ -1805,6 +1806,7 @@ function TaskInfo({ result, error, onCopyPrompt }: { result: GenerationResult; e
                     </Tag>
                 ) : null}
                 <Tag className="m-0">{formatLogTime(result.createdAt)}</Tag>
+                {result.config.channelName ? <Tag className="m-0">渠道 {result.config.channelName}</Tag> : null}
                 <Tag className="m-0">{result.model}</Tag>
                 <Tag className="m-0">{result.config.apiMode === "responses" ? "Responses" : "Images"}</Tag>
                 <Tag className="m-0">{result.config.size || "auto"}</Tag>
@@ -1941,6 +1943,7 @@ function HistoryLogCard({
                         </Tag>
                     ) : null}
                     <Tag className="m-0 text-[10px]">{formatLogTime(log.createdAt)}</Tag>
+                    {log.config.channelName ? <Tag className="m-0 text-[10px]">渠道 {log.config.channelName}</Tag> : null}
                     <Tag className="m-0 text-[10px]">{log.model}</Tag>
                     <Tag className="m-0 text-[10px]">{log.config.apiMode === "responses" ? "Responses" : "Images"}</Tag>
                     <Tag className="m-0 text-[10px]">{log.config.size || "auto"}</Tag>
@@ -2211,6 +2214,9 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         outputCompression: log.config?.outputCompression || "100",
         moderation: log.config?.moderation || "auto",
         timeout: log.config?.timeout || "600",
+        retryAttempts: log.config?.retryAttempts || "0",
+        channelId: log.config?.channelId || "",
+        channelName: log.config?.channelName || "",
         streamImages: log.config?.streamImages || false,
         streamPartialImages: log.config?.streamPartialImages || "1",
         responseFormatB64Json: log.config?.responseFormatB64Json !== false,
@@ -2230,11 +2236,20 @@ function buildGenerationLogConfig(config: AiConfig): GenerationLogConfig {
         outputCompression: config.outputCompression,
         moderation: config.moderation,
         timeout: config.timeout,
+        retryAttempts: config.retryAttempts,
+        channelId: config.activeChannelId || config.imageChannelId,
+        channelName: resolveChannelName(config, config.activeChannelId || config.imageChannelId),
         streamImages: config.streamImages,
         streamPartialImages: config.streamPartialImages,
         responseFormatB64Json: config.responseFormatB64Json,
         codexCli: config.codexCli,
     };
+}
+
+function resolveChannelName(config: AiConfig, channelId?: string) {
+    if (!channelId) return "";
+    const channels = config.channelMode === "remote" ? config.publicChannels : config.localChannels;
+    return channels.find((channel) => channel.id === channelId)?.name || channelId;
 }
 
 function imageExtension(value: string) {

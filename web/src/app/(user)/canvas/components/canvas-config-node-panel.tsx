@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Edit3, Eye, Image as ImageIcon, LoaderCircle, MessageSquare, Play, Video } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Edit3, Eye, Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Video } from "lucide-react";
 import { App, Button, Empty, Input, Modal, Segmented } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -12,13 +12,14 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
+import { CanvasAudioSettingsPopover } from "./canvas-audio-settings-popover";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "../types";
 
 type CanvasConfigNodePanelProps = {
     node: CanvasNodeData;
     isRunning: boolean;
-    inputSummary: { textCount: number; imageCount: number };
+    inputSummary: { textCount: number; imageCount: number; videoCount?: number; audioCount?: number };
     inputs: NodeGenerationInput[];
     onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onTextInputChange: (nodeId: string, content: string) => void;
@@ -104,6 +105,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                                     </span>
                                 ),
                             },
+                            {
+                                value: "audio",
+                                label: (
+                                    <span className="inline-flex items-center gap-1">
+                                        <Music2 className="size-3.5" />
+                                        音频
+                                    </span>
+                                ),
+                            },
                         ]}
                     />
                 </div>
@@ -112,6 +122,8 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
             <div className="mb-2 flex flex-wrap gap-1.5" onMouseDown={(event) => event.stopPropagation()}>
                 <InputChip label="提示词" value={`${inputSummary.textCount} 个`} style={chipStyle} />
                 <InputChip label="参考图" value={`${inputSummary.imageCount} 张`} style={chipStyle} />
+                {inputSummary.videoCount ? <InputChip label="参考视频" value={`${inputSummary.videoCount} 个`} style={chipStyle} /> : null}
+                {inputSummary.audioCount ? <InputChip label="参考音频" value={`${inputSummary.audioCount} 个`} style={chipStyle} /> : null}
                 <button type="button" className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px]" style={chipStyle} onClick={() => setPreviewOpen(true)}>
                     <Eye className="size-3.5" />
                     预览
@@ -123,11 +135,11 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                     className="canvas-compact-control h-10"
                     config={config}
                     value={config.model}
-                    channelId={mode === "image" ? config.imageChannelId : mode === "video" ? config.videoChannelId : config.textChannelId}
+                    channelId={mode === "image" ? config.imageChannelId : mode === "video" ? config.videoChannelId : mode === "audio" ? config.audioChannelId : config.textChannelId}
                     onChange={(model, channelId) =>
                         onConfigChange(node.id, {
                             model,
-                            ...(channelId ? (mode === "image" ? { imageChannelId: channelId } : mode === "video" ? { videoChannelId: channelId } : { textChannelId: channelId }) : {}),
+                            ...(channelId ? (mode === "image" ? { imageChannelId: channelId } : mode === "video" ? { videoChannelId: channelId } : mode === "audio" ? { audioChannelId: channelId } : { textChannelId: channelId }) : {}),
                         })
                     }
                     onMissingConfig={() => openConfigDialog(true)}
@@ -156,6 +168,13 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                             }
                         }}
                     />
+                ) : mode === "audio" ? (
+                    <CanvasAudioSettingsPopover
+                        config={config}
+                        placement="topRight"
+                        buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2"
+                        onConfigChange={(key, value) => onConfigChange(node.id, { [key]: value })}
+                    />
                 ) : null}
             </div>
 
@@ -178,7 +197,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
-                disabled={isRunning || (!inputSummary.textCount && !inputSummary.imageCount)}
+                disabled={isRunning || (!inputSummary.textCount && !inputSummary.imageCount && !inputSummary.videoCount && !inputSummary.audioCount)}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={() => onGenerate(node.id)}
             >
@@ -364,10 +383,14 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
-    const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : globalConfig.textModel;
+    const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "video" ? globalConfig.videoModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     return {
         ...globalConfig,
         model: node.metadata?.model || defaultModel || globalConfig.model || defaultConfig.model,
+        imageChannelId: node.metadata?.imageChannelId || globalConfig.imageChannelId,
+        videoChannelId: node.metadata?.videoChannelId || globalConfig.videoChannelId,
+        textChannelId: node.metadata?.textChannelId || globalConfig.textChannelId,
+        audioChannelId: node.metadata?.audioChannelId || globalConfig.audioChannelId,
         apiMode: node.metadata?.apiMode || globalConfig.apiMode || defaultConfig.apiMode, // 👈 新增：读取节点自身保存或全局降级的 apiMode 模式
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
@@ -376,6 +399,11 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         moderation: node.metadata?.moderation || globalConfig.moderation || defaultConfig.moderation,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
+        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
+        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
+        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
+        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
+        retryAttempts: node.metadata?.retryAttempts || globalConfig.retryAttempts || defaultConfig.retryAttempts,
         count: String(node.metadata?.count || (mode === "image" ? 3 : globalConfig.count) || defaultConfig.count),
         seed: node.metadata?.seed !== undefined ? String(node.metadata.seed) : globalConfig.seed,
     };

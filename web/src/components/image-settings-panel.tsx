@@ -50,13 +50,14 @@ type ImageSettingsPanelProps = {
     collapsible?: boolean;
 };
 
-type ImageSettingSectionKey = "quality" | "size" | "aspect" | "count" | "format" | "compression" | "moderation" | "seed";
+type ImageSettingSectionKey = "quality" | "size" | "aspect" | "count" | "retry" | "format" | "compression" | "moderation" | "seed";
 
 const defaultCollapsedSettings: Record<ImageSettingSectionKey, boolean> = {
     quality: false,
     size: true,
     aspect: true,
     count: true,
+    retry: true,
     format: true,
     compression: true,
     moderation: true,
@@ -67,6 +68,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const [collapsedSettings, setCollapsedSettings] = useState(defaultCollapsedSettings);
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const retryAttempts = Math.max(0, Math.min(5, Math.floor(Math.abs(Number(config.retryAttempts)) || 0)));
     const activeSize = config.size || "auto";
     const outputFormat = config.outputFormat || "png";
     const outputCompression = Math.max(0, Math.min(100, Math.floor(Number(config.outputCompression) || 100)));
@@ -205,6 +207,12 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>,
                 ) : null}
                 {renderSection(
+                    "retry",
+                    "失败重试",
+                    `${retryAttempts} 次`,
+                    <RetryInput value={retryAttempts} theme={theme} onChange={(value) => onConfigChange("retryAttempts", String(value))} />,
+                )}
+                {renderSection(
                     "format",
                     "格式",
                     imageFormatLabel(outputFormat),
@@ -335,6 +343,26 @@ function CountInput({ value, max, theme, onChange }: { value: number; max: numbe
                 onChange={(event) => onChange(Number(event.target.value) || null)}
                 onMouseDown={(event) => event.stopPropagation()}
             />
+        </label>
+    );
+}
+
+function RetryInput({ value, theme, onChange }: { value: number; theme: CanvasTheme; onChange: (value: number) => void }) {
+    return (
+        <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
+            <input
+                type="number"
+                min={0}
+                max={5}
+                className="min-w-0 flex-1 bg-transparent px-3 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                style={{ color: theme.node.text, WebkitTextFillColor: theme.node.text }}
+                value={value}
+                onChange={(event) => onChange(Math.max(0, Math.min(5, Math.floor(Number(event.target.value) || 0))))}
+                onMouseDown={(event) => event.stopPropagation()}
+            />
+            <span className="grid w-12 place-items-center border-l text-xs opacity-60" style={{ borderColor: theme.node.stroke }}>
+                次
+            </span>
         </label>
     );
 }

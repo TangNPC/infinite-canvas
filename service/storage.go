@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -1123,21 +1124,48 @@ func selectStorageProvider(storage model.PrivateStorageSetting) (model.StoragePr
 }
 
 func putS3Object(provider model.StorageProvider, objectKey string, contentType string, data []byte) error {
-	request, err := newS3Request(http.MethodPut, provider, objectKey, bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return err
+	delays := []time.Duration{100 * time.Millisecond, 300 * time.Millisecond, 900 * time.Millisecond}
+	var lastErr error
+	for attempt := 0; attempt <= len(delays); attempt++ {
+		request, err := newS3Request(http.MethodPut, provider, objectKey, bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Content-Type", contentType)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			lastErr = err
+			if attempt < len(delays) && isRetryableS3PutError(err) {
+				time.Sleep(delays[attempt])
+				continue
+			}
+			return err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+		response.Body.Close()
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			return nil
+		}
+		lastErr = fmt.Errorf("对象存储上传失败: %s %s", response.Status, string(body))
+		if attempt < len(delays) && response.StatusCode >= 500 {
+			time.Sleep(delays[attempt])
+			continue
+		}
+		if readErr != nil {
+			return fmt.Errorf("%w: %v", lastErr, readErr)
+		}
+		return lastErr
 	}
-	request.Header.Set("Content-Type", contentType)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
+	return lastErr
+}
+
+func isRetryableS3PutError(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
 	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("对象存储上传失败: %s %s", response.Status, string(body))
-	}
-	return nil
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "connection reset") || strings.Contains(text, "connection refused") || strings.Contains(text, "broken pipe") || strings.Contains(text, "unexpected eof") || strings.Contains(text, "eof")
 }
 
 func getS3Object(provider model.StorageProvider, objectKey string) ([]byte, error) {

@@ -1,3 +1,8 @@
+---
+title: 系统配置数据结构
+description: settings 表中 public 和 private 配置结构说明
+---
+
 # 系统配置数据结构
 
 系统配置保存在 `settings` 表中，目前只使用两行：
@@ -41,12 +46,12 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `availableModels` | string[] | 系统可用模型，由管理员手动选择；页面下拉选项可来自私有渠道模型 |
-| `channels` | object[] | 已启用私有渠道的脱敏摘要，供前端展示渠道名称、地址和模型数量，不包含 API Key |
+| `availableModels` | string[] | 系统可用模型；保存设置时会自动合并所有已启用私有渠道的模型 |
 | `modelCosts` | object[] | 模型算力点配置，后端模型接口调用前按模型预扣，上游失败时返还；未配置默认不扣除 |
-| `defaultModel` | string | 默认模型，从 `availableModels` 中选择 |
-| `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择 |
-| `defaultTextModel` | string | 默认文本模型，从 `availableModels` 中选择 |
+| `defaultModel` | string | 默认模型，从 `availableModels` 中选择；为空或失效时优先选择文本模型 |
+| `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedream`、`image`、`gpt-image` 模型 |
+| `defaultVideoModel` | string | 默认视频模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedance`、`video` 模型 |
+| `defaultTextModel` | string | 默认文本模型，从 `availableModels` 中选择；为空或失效时优先选择非图片/视频模型 |
 | `systemPrompt` | string | 系统提示词 |
 | `allowCustomChannel` | boolean | 是否允许用户在配置弹窗中切换为本地直连渠道，默认允许 |
 
@@ -83,7 +88,6 @@
       "apiKey": "sk-xxx",
       "models": ["gpt-5.5", "gpt-image-2"],
       "weight": 1,
-      "timeout": 600,
       "enabled": true,
       "remark": ""
     }
@@ -91,16 +95,6 @@
   "promptSync": {
     "enabled": true,
     "cron": "*/5 * * * *"
-  },
-  "storage": {
-    "mode": "local_indexeddb",
-    "allowUserProvider": true,
-    "providers": [],
-    "capacityCheck": {
-      "enabled": true,
-      "cron": "0 */6 * * *"
-    },
-    "capacityLimitBytes": 9663676416
   }
 }
 ```
@@ -109,7 +103,6 @@
 | --- | --- | --- |
 | `channels` | object[] | 模型渠道列表 |
 | `promptSync` | object | GitHub 远程提示词定时同步配置 |
-| `storage` | object | 文件存储配置，控制 IndexedDB、SQLite + S3/R2 和用户自定义对象存储 |
 
 `channels` 每项字段：
 
@@ -121,43 +114,10 @@
 | `apiKey` | string | 渠道密钥 |
 | `models` | string[] | 该渠道可用模型 |
 | `weight` | number | 渠道权重；同一模型有多个可用渠道时按权重随机 |
-| `timeout` | number | 上游请求超时时间，单位秒，默认 600 |
 | `enabled` | boolean | 是否启用 |
 | `remark` | string | 备注 |
 
-后端调用模型时，会从已启用、已配置 `baseUrl` 和 `apiKey`、且 `models` 包含目标模型的渠道中选择一个。后端代理支持 OpenAI 兼容的 `/v1/images/*`、`/v1/responses`、`/v1/chat/completions` 和视频相关路径。
-
-`storage` 字段：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `mode` | string | 存储模式：`local_indexeddb`、`server_sqlite_s3`、`hybrid` |
-| `allowUserProvider` | boolean | 是否允许用户配置自己的 S3/R2 对象存储 |
-| `providers` | object[] | 管理员配置的 S3/R2 存储列表 |
-| `roundRobinCursor` | number | 多个启用存储的轮询游标 |
-| `capacityCheck.enabled` | boolean | 是否定时统计启用存储的容量 |
-| `capacityCheck.cron` | string | 容量统计 Cron 表达式 |
-| `capacityLimitBytes` | number | 单个存储到达该容量后禁用，默认约 9 GiB |
-
-`storage.providers` 每项字段：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string | 配置 ID |
-| `name` | string | 显示名称 |
-| `type` | string | 当前为 `s3` |
-| `endpoint` | string | S3/R2 Endpoint |
-| `region` | string | 区域，Cloudflare R2 通常为 `auto` |
-| `bucket` | string | 存储桶名称 |
-| `accessKeyId` | string | Access Key ID |
-| `secretAccessKey` | string | Secret Access Key，后台返回时隐藏 |
-| `publicBaseUrl` | string | 公开访问域名，例如 R2 public bucket URL |
-| `pathPrefix` | string | 对象 Key 前缀 |
-| `weight` | number | 多存储轮询权重 |
-| `enabled` | boolean | 是否启用 |
-| `capacityBytes` | number | 最近一次统计的容量 |
-| `capacityCheckedAt` | string | 最近一次容量统计时间 |
-| `capacityExceeded` | boolean | 是否超过容量限制 |
+后端调用模型时，会从已启用、已配置 `baseUrl` 和 `apiKey`、且 `models` 包含目标模型的渠道中选择一个。
 
 `promptSync` 字段：
 

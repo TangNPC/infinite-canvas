@@ -24,6 +24,9 @@ func New() *gin.Engine {
 	api.GET("/settings", gin.WrapF(handler.Settings))
 	api.GET("/storage/config", gin.WrapF(handler.StorageConfig))
 	api.GET("/proxy-image", gin.WrapF(handler.ProxyImage))
+	api.GET("/media/references/:id", func(c *gin.Context) {
+		handler.ReferenceMedia(c.Writer, c.Request, c.Param("id"))
+	})
 	api.GET("/files/:id", func(c *gin.Context) {
 		handler.FileInfo(c.Writer, c.Request, c.Param("id"))
 	})
@@ -35,8 +38,10 @@ func New() *gin.Engine {
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
 	v1.POST("/chat/completions", gin.WrapF(handler.AIChatCompletions))
 	v1.POST("/responses", gin.WrapF(handler.AIResponses))
+	v1.POST("/audio/speech", gin.WrapF(handler.AIAudioSpeech))
 	v1.POST("/videos", gin.WrapF(handler.AIVideos))
 	v1.POST("/files", gin.WrapF(handler.UploadFile))
+	v1.POST("/media/references", gin.WrapF(handler.UploadReferenceMedia))
 	v1.DELETE("/files/:id", func(c *gin.Context) {
 		handler.DeleteFile(c.Writer, c.Request, c.Param("id"))
 	})

@@ -16,10 +16,10 @@
 - 无限画布：多画布项目、节点拖拽缩放、连线、小地图、撤销重做、导入导出。
 - AI 创作：支持 OpenAI 兼容接口的 Images API、Responses API、图生图、参考图编辑、视频生成、流式接收、Base64 图片返回和文本问答。
 - 生图工作台：支持侧边/悬浮底部工作台、多任务并发、历史结果合并展示、分类管理、失败详情、参考图缩略图和“我的素材”复用。
-- 视频创作台：支持 Agnes-Video-V2.0 文生视频/图生视频、多任务并发、参考图、历史同步、云端存储同步和本地下载。
+- 视频创作台：支持 Seedance Agent Plan 文生视频、多媒体参考、多任务并发、历史同步、云端存储同步和本地下载。
 - 创作工作流：支持公开/个人模板、变量表单、AI 创建工作流、单图/多图系列工作流、参考图输入和结果自动进入生图历史。
 - 画布助手：围绕选中节点和上游节点对话、生图，并把结果插回画布。
-- 提示词与素材：提示词库、服务器素材库和“我的素材”可在生图、画布 AI 和工作流中复用。
+- 提示词与素材：提示词库、服务器素材库和“我的素材”可在生图、视频、画布 AI 和工作流中复用。
 - 存储：保留浏览器 IndexedDB，本版本新增 SQLite 元数据 + S3/R2 图片和视频对象存储，可配置 Cloudflare R2。
 
 完整功能说明见 [docs/features.md](docs/features.md)。
@@ -66,7 +66,7 @@ npm run dev
 
 运行后默认端口 13000，可访问 `http://localhost:13000`。
 
-如果你 fork 后进行了二次开发，部署时需要使用当前源码构建或发布你自己的镜像，优先参考更完整的 [部署说明](docs/deployment.md)。
+如果你 fork 后进行了二次开发，部署时需要使用当前源码构建或发布你自己的镜像，优先参考更完整的 [Docker 部署说明](docs/deployment.md)。
 
 如需要拉取提示词，可前往：`http://localhost:13000/admin/prompts`
 
@@ -90,17 +90,16 @@ npm run dev
 ## 文档
 
 - [功能介绍](docs/features.md)
-- [部署说明](docs/deployment.md)
+- [Docker 部署](docs/deployment.md)
+- [本地开发](docs/local-development.md)
 - [画布节点操作手册](docs/canvas-node-manual.md)
 - [画布快捷键](docs/canvas-shortcuts.md)
+- [待测试](docs/pending-test.md)
 - [待办事项](docs/todo.md)
 - [后端数据库说明](docs/backend-database.md)
 - [系统配置数据结构](docs/system-settings.md)
 - [接口响应约定](docs/api-response.md)
-- [SQLite + S3/R2 存储方案](docs/storage-sqlite-s3-plan.md)
-- [工作流创建 Agent 方案](docs/workflow-agent-plan.md)
-- [多图生成工作流](docs/multi-image-workflow-development-plan.md)
-- [v0.3.0 审查与修复记录](docs/review-fixes-2026-05-31.md)
+- [上游/二开功能归属与合并检查](docs/upstream-merge-v0.3.3.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全说明](SECURITY.md)
 

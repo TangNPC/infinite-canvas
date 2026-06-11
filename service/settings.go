@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ func PublicSettings() (model.PublicSetting, error) {
 	settings, err := repository.GetSettings()
 	settings = normalizeSettings(settings)
 	settings.Public.ModelChannel.Channels = publicChannelInfos(settings.Private.Channels)
-	
+
 	mode := "local_indexeddb"
 	if HasAdminStorageProvider(settings.Private.Storage) {
 		mode = "server_sqlite_s3"
@@ -76,8 +77,12 @@ func AdminTestChannelModel(index *int, channel model.ModelChannel, modelName str
 }
 
 func normalizeSettings(settings model.Settings) model.Settings {
-	settings.Public = normalizePublicSetting(settings.Public)
 	settings.Private = normalizePrivateSetting(settings.Private)
+	settings.Public = normalizePublicSetting(settings.Public)
+	if models := collectChannelModels(settings.Private.Channels); len(models) > 0 {
+		settings.Public.ModelChannel.AvailableModels = models
+	}
+	settings.Public.ModelChannel = repairDefaultModels(settings.Public.ModelChannel)
 	return settings
 }
 
@@ -374,11 +379,35 @@ func SelectModelChannelForModel(modelName string, channelID string) (model.Model
 }
 
 func BuildModelChannelURL(channel model.ModelChannel, path string) string {
-	baseURL := strings.TrimRight(channel.BaseURL, "/")
-	if !strings.HasSuffix(baseURL, "/v1") {
-		baseURL += "/v1"
+	baseURL := strings.TrimSpace(channel.BaseURL)
+	parsed, err := url.Parse(baseURL)
+	if err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		parsed.Path = normalizeModelChannelPath(parsed.Path)
+		return strings.TrimRight(parsed.String(), "/") + path
 	}
-	return baseURL + path
+	baseURL = strings.TrimRight(baseURL, "/")
+	lower := strings.ToLower(baseURL)
+	if index := strings.Index(lower, "/api/plan/v3"); index >= 0 {
+		return baseURL[:index] + "/api/plan/v3" + path
+	}
+	if strings.HasSuffix(lower, "/v1") || strings.HasSuffix(lower, "/api/v3") {
+		return baseURL + path
+	}
+	return baseURL + "/v1" + path
+}
+
+func normalizeModelChannelPath(path string) string {
+	path = strings.TrimRight(path, "/")
+	lower := strings.ToLower(path)
+	if index := strings.Index(lower, "/api/plan/v3"); index >= 0 {
+		return path[:index] + "/api/plan/v3"
+	}
+	if strings.HasSuffix(lower, "/v1") || strings.HasSuffix(lower, "/api/v3") {
+		return path
+	}
+	return path + "/v1"
 }
 
 func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {
@@ -447,6 +476,9 @@ func fetchAdminChannelModels(channel model.ModelChannel) ([]string, error) {
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
 	if response.StatusCode >= http.StatusBadRequest {
+		if response.StatusCode == http.StatusNotFound && isArkPlanBaseURL(channel.BaseURL) {
+			return nil, safeMessageError{message: "火山方舟 Agent Plan 未提供 OpenAI /models 接口，请手动填写模型名"}
+		}
 		return nil, readAdminChannelError(body, response.StatusCode, "读取模型失败")
 	}
 	var payload struct {
@@ -589,7 +621,7 @@ func collectChannelModels(channels []model.ModelChannel) []string {
 	seen := map[string]bool{}
 	result := []string{}
 	for _, channel := range channels {
-		if !channel.Enabled || channel.BaseURL == "" {
+		if !channel.Enabled {
 			continue
 		}
 		for _, item := range channel.Models {
@@ -601,6 +633,55 @@ func collectChannelModels(channels []model.ModelChannel) []string {
 			result = append(result, modelName)
 		}
 	}
-	sort.Strings(result)
 	return result
+}
+
+func repairDefaultModels(setting model.PublicModelChannelSetting) model.PublicModelChannelSetting {
+	models := setting.AvailableModels
+	if len(models) == 0 {
+		return setting
+	}
+	setting.DefaultTextModel = validOrFallback(setting.DefaultTextModel, models, firstModelByCapability(models, "text"))
+	setting.DefaultImageModel = validOrFallback(setting.DefaultImageModel, models, firstModelByCapability(models, "image"))
+	setting.DefaultVideoModel = validOrFallback(setting.DefaultVideoModel, models, firstModelByCapability(models, "video"))
+	setting.DefaultModel = validOrFallback(setting.DefaultModel, models, setting.DefaultTextModel)
+	return setting
+}
+
+func validOrFallback(value string, models []string, fallback string) string {
+	value = strings.TrimSpace(value)
+	for _, modelName := range models {
+		if modelName == value {
+			return value
+		}
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return fallback
+	}
+	return models[0]
+}
+
+func firstModelByCapability(models []string, capability string) string {
+	for _, modelName := range models {
+		if modelMatchesCapability(modelName, capability) {
+			return modelName
+		}
+	}
+	return models[0]
+}
+
+func modelMatchesCapability(modelName string, capability string) bool {
+	value := strings.ToLower(modelName)
+	switch capability {
+	case "image":
+		return strings.Contains(value, "image") || strings.Contains(value, "seedream") || strings.Contains(value, "flux") || strings.Contains(value, "dall")
+	case "video":
+		return strings.Contains(value, "video") || strings.Contains(value, "seedance") || strings.Contains(value, "wan") || strings.Contains(value, "kling")
+	default:
+		return !modelMatchesCapability(modelName, "image") && !modelMatchesCapability(modelName, "video")
+	}
+}
+
+func isArkPlanBaseURL(baseURL string) bool {
+	return strings.Contains(strings.ToLower(baseURL), "/api/plan/v3")
 }

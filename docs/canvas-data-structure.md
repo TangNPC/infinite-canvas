@@ -1,3 +1,8 @@
+---
+title: 画布数据结构
+description: 画布本地存储、节点结构、媒体文件与清理机制
+---
+
 # 画布数据结构
 
 本文档说明当前画布在前端本地保存的数据结构、图片文件的存储和清理方式，以及后续接入后端存储时建议保持的兼容边界。
@@ -101,8 +106,9 @@ type CanvasNodeMetadata = {
 
 - 图片节点：`content` 是当前可展示的图片 URL，通常是 `blob:` URL；`storageKey` 指向本地图片 Blob；`naturalWidth/naturalHeight/bytes/mimeType` 保存原图信息。
 - 视频节点：`content` 是当前可播放的视频 URL，可以是本地 `blob:` URL、服务端对象存储 URL 或 AI 返回的临时远程 URL；`storageKey` 存在时指向本地或服务端视频对象；`bytes/mimeType` 保存文件信息。
+- 音频节点：`content` 是当前可播放的音频 URL；`storageKey` 存在时指向本地音频对象；`audioVoice/audioFormat/audioSpeed/audioInstructions` 保存音频生成参数。
 - 文本节点：`content` 保存文本内容；`fontSize` 保存字体大小；`prompt/status/errorDetails` 保存生成状态。
-- 生成配置节点：`generationMode/model/size/count/inputOrder` 保存生成配置；`generationMode` 可选择文本、图片或视频；上游输入通过 `connections` 计算。
+- 生成配置节点：`generationMode/model/size/count/inputOrder` 保存生成配置；`generationMode` 可选择文本、图片、视频或音频；上游输入通过 `connections` 计算。
 - 图片组节点：根节点用 `isBatchRoot/batchChildIds/primaryImageId/imageBatchExpanded` 记录批量生成结果；子图节点用 `batchRootId` 指回根节点。
 
 ## 连线结构
@@ -217,68 +223,3 @@ type UploadedImage = {
 5. 删除时会同时 `URL.revokeObjectURL`，并从内存缓存 `objectUrls` 移除。
 
 这套方式可以避免同一张图片被画布、素材或助手同时引用时误删。
-
-需要注意：
-
-- 只要某个 JSON 结构里仍有 `storageKey`，清理逻辑就会认为图片仍被使用。
-- `collectImageStorageKeys` 会递归扫描对象中的 `storageKey` 字段，字段值必须以 `image:` 开头才会被当成本地图片。
-- 如果后续新增保存图片引用的数据结构，也要确保它能传入清理上下文，或者位于现有项目/素材结构内。
-
-## 后端存储兼容建议
-
-后续接入后端时，建议保持“画布 JSON”和“图片文件”分离：
-
-- 画布表保存项目元信息和画布 JSON。
-- 文件表保存图片文件、访问 URL、哈希、大小、MIME、宽高、归属用户等信息。
-- 画布节点中继续保存轻量图片引用，不把图片二进制或 base64 写进画布 JSON。
-
-建议图片引用逐步扩展为兼容本地和云端的结构：
-
-```ts
-type ImageRef = {
-  storageKey?: string;
-  fileId?: string;
-  url?: string;
-  width?: number;
-  height?: number;
-  bytes?: number;
-  mimeType?: string;
-};
-```
-
-兼容规则：
-
-- 本地旧数据：有 `storageKey`，无 `fileId`，通过 IndexedDB 读取。
-- 已上传后端：有 `fileId`，展示时优先使用后端返回的签名 URL 或公开 URL。
-- 迁移过渡期：可以同时保留 `storageKey` 和 `fileId`；确认云端文件可用后，再按清理策略删除本地 Blob。
-- `content/dataUrl/coverUrl` 仍只作为当前可展示 URL，不作为稳定 ID。
-
-建议读取优先级：
-
-1. 有 `fileId`：向后端换取可访问 URL。
-2. 有 `storageKey`：从本地 IndexedDB 生成 `blob:` URL。
-3. 有旧 `data:image/...`：先写入本地图片存储，再视需要上传后端。
-4. 只有普通 URL：直接展示，但不要假设可长期访问。
-
-建议删除策略：
-
-- 删除节点只删除画布 JSON 引用，不直接删除后端文件。
-- 后端文件删除应按引用计数或定期扫描未引用文件处理。
-- 保存到“我的素材”的图片，即使原画布节点删除，也应继续保留文件引用。
-- 删除画布、删除素材、删除助手会话后，再由后端清理任务判断文件是否无人引用。
-
-建议同步流程：
-
-1. 前端保存画布 JSON 时，保持节点 ID、连线 ID、`storageKey/fileId` 不变。
-2. 遇到只有 `storageKey` 的图片，后台同步前先上传 Blob，得到 `fileId`。
-3. 上传成功后给对应图片引用补 `fileId` 和云端元信息。
-4. 服务端保存更新后的画布 JSON。
-5. 前端下次打开时优先走 `fileId`，本地 `storageKey` 只作为缓存或离线回退。
-
-## 后续改动约束
-
-- 不要把新生成的大图直接长期写入画布 JSON。
-- 新增图片来源时统一走 `uploadImage` 或未来的文件上传服务。
-- 新增图片引用字段时，应保留 `storageKey` 兼容旧本地数据。
-- 新增清理入口时，要把仍需保留的画布、素材、助手数据传给 `cleanupUnusedImages`。
-- 后端同步完成前，文档和 UI 不要写成已支持云同步。

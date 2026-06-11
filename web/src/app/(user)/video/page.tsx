@@ -13,6 +13,7 @@ import {
     FolderPlus,
     History,
     LoaderCircle,
+    Music2,
     PanelBottom,
     PanelLeft,
     Plus,
@@ -35,7 +36,8 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
-import { deleteStoredMedia, downloadRemoteMedia, resolveMediaUrl, uploadRemoteMediaToServer } from "@/services/file-storage";
+import { seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { deleteStoredMedia, downloadRemoteMedia, resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { fetchUserConfig, syncUserVideoHistory } from "@/services/api/user-config";
 import { requestVideoGeneration, VideoRequestError, type VideoGenerationResult } from "@/services/api/video";
@@ -44,6 +46,7 @@ import { useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
+import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 type GeneratedVideo = {
     id: string;
@@ -57,7 +60,7 @@ type GeneratedVideo = {
     source?: "ai" | "cloud" | "local";
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoCount">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoCount" | "retryAttempts"> & { channelId?: string; channelName?: string };
 
 type GenerationResult = {
     id: string;
@@ -67,6 +70,8 @@ type GenerationResult = {
     model: string;
     config: GenerationLogConfig;
     references: ReferenceImage[];
+    videoReferences: ReferenceVideo[];
+    audioReferences: ReferenceAudio[];
     progress?: number;
     video?: GeneratedVideo;
     error?: string;
@@ -83,6 +88,8 @@ type GenerationLog = {
     model: string;
     config: GenerationLogConfig;
     references: ReferenceImage[];
+    videoReferences: ReferenceVideo[];
+    audioReferences: ReferenceAudio[];
     durationMs: number;
     size: string;
     resolution: string;
@@ -93,7 +100,7 @@ type GenerationLog = {
     errorDetail?: string;
 };
 
-type RequestSnapshot = { text: string; requestConfig: AiConfig; displayConfig: GenerationLogConfig; references: ReferenceImage[]; taskCount: number };
+type RequestSnapshot = { text: string; requestConfig: AiConfig; displayConfig: GenerationLogConfig; references: ReferenceImage[]; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; taskCount: number };
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 type WorkbenchLayout = "side" | "bottom";
 type CollapsibleSectionKey = "prompt" | "references" | "settings";
@@ -129,6 +136,8 @@ export default function VideoPage() {
     const isUserReady = useUserStore((state) => state.isReady);
     const [prompt, setPrompt] = useState("");
     const [references, setReferences] = useState<ReferenceImage[]>([]);
+    const [videoReferences, setVideoReferences] = useState<ReferenceVideo[]>([]);
+    const [audioReferences, setAudioReferences] = useState<ReferenceAudio[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
     const [results, setResults] = useState<GenerationResult[]>([]);
     const [logs, setLogs] = useState<GenerationLog[]>([]);
@@ -184,10 +193,18 @@ export default function VideoPage() {
     };
 
     const addReferences = async (files?: FileList | null) => {
-        const imageFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
-        if (!imageFiles.length) return;
-        setUploadingCount(imageFiles.length);
-        const hideLoading = message.loading("正在上传参考图...", 0);
+        const selectedFiles = Array.from(files || []);
+        const unsupported = selectedFiles.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file));
+        if (unsupported.length) message.warning("已忽略不支持的参考素材，请使用图片、mp4/mov 视频或 mp3/wav 音频");
+        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.images - references.length);
+        const videoFiles = selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.videos - videoReferences.length);
+        const audioFiles = selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, SEEDANCE_REFERENCE_LIMITS.audios - audioReferences.length);
+        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes)) message.warning("已忽略超过 30MB 的参考图");
+        if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes)) message.warning("已忽略超过 50MB 的参考视频");
+        if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
+        if (!imageFiles.length && !videoFiles.length && !audioFiles.length) return;
+        setUploadingCount(imageFiles.length + videoFiles.length + audioFiles.length);
+        const hideLoading = message.loading("正在上传参考素材...", 0);
         try {
             const nextReferences = await Promise.all(
                 imageFiles.map(async (file) => {
@@ -195,10 +212,24 @@ export default function VideoPage() {
                     return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, source: "upload" as const, temporary: true };
                 }),
             );
-            setReferences((value) => [...value, ...nextReferences].slice(0, 7));
-            message.success("参考图上传成功");
+            const nextVideoReferences = await Promise.all(
+                videoFiles.map(async (file) => {
+                    const video = await uploadMediaFile(file, "video-reference");
+                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
+                }),
+            );
+            const nextAudioReferences = await Promise.all(
+                audioFiles.map(async (file) => {
+                    const audio = await uploadMediaFile(file, "audio-reference");
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                }),
+            );
+            setReferences((value) => [...value, ...nextReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.images));
+            setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.videos));
+            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, SEEDANCE_REFERENCE_LIMITS.audios));
+            message.success("参考素材上传成功");
         } catch (error) {
-            message.error(error instanceof Error ? `上传参考图失败：${error.message}` : "上传参考图失败");
+            message.error(error instanceof Error ? `上传参考素材失败：${error.message}` : "上传参考素材失败");
         } finally {
             hideLoading();
             setUploadingCount(0);
@@ -250,6 +281,18 @@ export default function VideoPage() {
         }
     };
 
+    const removeVideoReference = async (id: string) => {
+        const reference = videoReferences.find((item) => item.id === id);
+        setVideoReferences((value) => value.filter((ref) => ref.id !== id));
+        if (reference?.storageKey) await deleteStoredMedia([reference.storageKey]).catch(() => undefined);
+    };
+
+    const removeAudioReference = async (id: string) => {
+        const reference = audioReferences.find((item) => item.id === id);
+        setAudioReferences((value) => value.filter((ref) => ref.id !== id));
+        if (reference?.storageKey) await deleteStoredMedia([reference.storageKey]).catch(() => undefined);
+    };
+
     const pastePromptFromClipboard = async () => {
         try {
             const text = (await navigator.clipboard.readText()).trim();
@@ -289,9 +332,9 @@ export default function VideoPage() {
             const durationMs = performance.now() - (taskStartedAt[resultId] || performance.now());
             if (item.status === "fulfilled") {
                 const video = resultVideoOverridesRef.current[resultId] || item.value;
-                return buildLog({ prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references, durationMs: video.durationMs, status: "成功", video });
+                return buildLog({ prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: video.durationMs, status: "成功", video });
             }
-            return buildLog({ prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references, durationMs, status: "失败", error: errorMessage(item.reason), errorDetail: errorDetail(item.reason) });
+            return buildLog({ prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs, status: "失败", error: errorMessage(item.reason), errorDetail: errorDetail(item.reason) });
         });
         await Promise.all(nextLogs.map((log) => logStore.setItem(log.id, serializeLog(log))));
         const storedLogs = await readStoredLogs();
@@ -314,6 +357,8 @@ export default function VideoPage() {
                 snapshot.requestConfig,
                 snapshot.text,
                 snapshot.references,
+                snapshot.videoReferences,
+                snapshot.audioReferences,
                 (progress) => {
                     setResults((value) => updateResult(value, resultId, { progress }));
                 }
@@ -327,7 +372,7 @@ export default function VideoPage() {
         }
     };
 
-    const buildRequestSnapshot = ({ promptText = prompt, referenceItems = references, taskCount = normalizeVideoCount(effectiveConfig.videoCount) }: { promptText?: string; referenceItems?: ReferenceImage[]; taskCount?: number } = {}) => {
+    const buildRequestSnapshot = ({ promptText = prompt, referenceItems = references, videoReferenceItems = videoReferences, audioReferenceItems = audioReferences, taskCount = normalizeVideoCount(effectiveConfig.videoCount) }: { promptText?: string; referenceItems?: ReferenceImage[]; videoReferenceItems?: ReferenceVideo[]; audioReferenceItems?: ReferenceAudio[]; taskCount?: number } = {}) => {
         const text = promptText.trim();
         if (!text) {
             message.error("请输入视频提示词");
@@ -338,24 +383,31 @@ export default function VideoPage() {
             openConfigDialog(true);
             return null;
         }
+        const videoReferenceError = seedanceVideoReferenceError(videoReferenceItems);
+        if (videoReferenceError) {
+            message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
+            return null;
+        }
         return {
             text,
             requestConfig: buildVideoConfig(effectiveConfig, model),
             displayConfig: buildGenerationLogConfig({ ...effectiveConfig, model, videoModel: model, videoCount: String(taskCount) }),
-            references: [...referenceItems].slice(0, 7),
+            references: [...referenceItems].slice(0, SEEDANCE_REFERENCE_LIMITS.images),
+            videoReferences: [...videoReferenceItems].slice(0, SEEDANCE_REFERENCE_LIMITS.videos),
+            audioReferences: [...audioReferenceItems].slice(0, SEEDANCE_REFERENCE_LIMITS.audios),
             taskCount,
         };
     };
 
     const retryResult = (result: GenerationResult) => {
-        const snapshot = buildRequestSnapshot({ promptText: result.prompt, referenceItems: result.references, taskCount: 1 });
+        const snapshot = buildRequestSnapshot({ promptText: result.prompt, referenceItems: result.references, videoReferenceItems: result.videoReferences, audioReferenceItems: result.audioReferences, taskCount: 1 });
         if (!snapshot) return;
         setResults((value) => value.filter((item) => item.id !== result.id));
         void submitGenerationBatch(snapshot);
     };
 
     const retryLog = (log: GenerationLog) => {
-        const snapshot = buildRequestSnapshot({ promptText: log.prompt, referenceItems: log.references, taskCount: 1 });
+        const snapshot = buildRequestSnapshot({ promptText: log.prompt, referenceItems: log.references, videoReferenceItems: log.videoReferences, audioReferenceItems: log.audioReferences, taskCount: 1 });
         if (!snapshot) return;
         void submitGenerationBatch(snapshot);
     };
@@ -448,8 +500,38 @@ export default function VideoPage() {
                 const stored = await uploadImage(payload.dataUrl);
                 setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey, source: (payload.source === "library" ? "library" : "upload") as "library" | "upload", temporary: payload.source !== "library" }].slice(0, 7));
             }
-        } else {
-            message.warning("视频素材不能作为视频参考图");
+        } else if (payload.kind === "video") {
+            setVideoReferences((value) =>
+                [
+                    ...value,
+                    {
+                        id: nanoid(),
+                        name: payload.title,
+                        type: payload.mimeType || "video/mp4",
+                        url: payload.url,
+                        storageKey: payload.storageKey,
+                        source: "asset" as const,
+                        assetId: payload.assetId,
+                        temporary: false,
+                    },
+                ].slice(0, SEEDANCE_REFERENCE_LIMITS.videos),
+            );
+        } else if (payload.kind === "audio") {
+            setAudioReferences((value) =>
+                [
+                    ...value,
+                    {
+                        id: nanoid(),
+                        name: payload.title,
+                        type: payload.mimeType || "audio/mpeg",
+                        url: payload.url,
+                        storageKey: payload.storageKey,
+                        source: "asset" as const,
+                        assetId: payload.assetId,
+                        temporary: false,
+                    },
+                ].slice(0, SEEDANCE_REFERENCE_LIMITS.audios),
+            );
         }
         setAssetPickerOpen(false);
         setCollapsedSections((value) => ({ ...value, references: false }));
@@ -458,6 +540,8 @@ export default function VideoPage() {
     const createSession = () => {
         setPrompt("");
         setReferences([]);
+        setVideoReferences([]);
+        setAudioReferences([]);
         setResults((value) => value.filter((item) => item.status === "pending"));
         setSelectedLogIds([]);
         setPreviewLog(null);
@@ -466,7 +550,7 @@ export default function VideoPage() {
     const deleteSelectedLogs = async () => {
         const deletedLogs = logs.filter((log) => selectedLogIds.includes(log.id));
         const nextLogs = logs.filter((log) => !selectedLogIds.includes(log.id));
-        const keys = disposableLogStorageKeys(deletedLogs, nextLogs, references, results);
+        const keys = disposableLogStorageKeys(deletedLogs, nextLogs, references, videoReferences, audioReferences, results);
         await Promise.all([deleteStoredMedia(keys.media), deleteStoredImages(keys.images), ...selectedLogIds.map((id) => logStore.removeItem(id))]);
         setLogs(nextLogs);
         setReferences((value) => value.filter((item) => !item.storageKey || !keys.images.includes(item.storageKey)));
@@ -486,7 +570,7 @@ export default function VideoPage() {
             okButtonProps: { danger: true },
             onOk: async () => {
                 const nextLogs = logs.filter((item) => item.id !== log.id);
-                const keys = disposableLogStorageKeys([log], nextLogs, references, results);
+                const keys = disposableLogStorageKeys([log], nextLogs, references, videoReferences, audioReferences, results);
                 await Promise.all([deleteStoredMedia(keys.media), deleteStoredImages(keys.images), logStore.removeItem(log.id)]);
                 setLogs(nextLogs);
                 setReferences((value) => value.filter((item) => !item.storageKey || !keys.images.includes(item.storageKey)));
@@ -536,7 +620,9 @@ export default function VideoPage() {
         setPreviewLog(log);
         setPrompt(log.prompt);
         setReferences(log.references || []);
-        setCollapsedSections((value) => ({ ...value, prompt: false, references: !log.references?.length }));
+        setVideoReferences(log.videoReferences || []);
+        setAudioReferences(log.audioReferences || []);
+        setCollapsedSections((value) => ({ ...value, prompt: false, references: !log.references?.length && !log.videoReferences?.length && !log.audioReferences?.length }));
         if (log.config.videoModel || log.model) updateConfig("videoModel", log.config.videoModel || log.model);
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.vquality) updateConfig("vquality", log.config.vquality);
@@ -560,6 +646,8 @@ export default function VideoPage() {
                             collapsedSections={collapsedSections}
                             prompt={prompt}
                             references={references}
+                            videoReferences={videoReferences}
+                            audioReferences={audioReferences}
                             config={effectiveConfig}
                             model={model}
                             canGenerate={canGenerate}
@@ -576,6 +664,8 @@ export default function VideoPage() {
                             onPasteReferences={() => void addReferencesFromClipboard()}
                             onUploadReferences={() => fileInputRef.current?.click()}
                             onRemoveReference={(id) => void removeReference(id)}
+                            onRemoveVideoReference={(id) => void removeVideoReference(id)}
+                            onRemoveAudioReference={(id) => void removeAudioReference(id)}
                             onGenerate={() => void generate()}
                             bottomSettingsCollapsed={bottomSettingsCollapsed}
                             setBottomSettingsCollapsed={setBottomSettingsCollapsed}
@@ -633,6 +723,8 @@ export default function VideoPage() {
                             collapsedSections={collapsedSections}
                             prompt={prompt}
                             references={references}
+                            videoReferences={videoReferences}
+                            audioReferences={audioReferences}
                             config={effectiveConfig}
                             model={model}
                             canGenerate={canGenerate}
@@ -649,6 +741,8 @@ export default function VideoPage() {
                             onPasteReferences={() => void addReferencesFromClipboard()}
                             onUploadReferences={() => fileInputRef.current?.click()}
                             onRemoveReference={(id) => void removeReference(id)}
+                            onRemoveVideoReference={(id) => void removeVideoReference(id)}
+                            onRemoveAudioReference={(id) => void removeAudioReference(id)}
                             onGenerate={() => void generate()}
                             bottomSettingsCollapsed={bottomSettingsCollapsed}
                             setBottomSettingsCollapsed={setBottomSettingsCollapsed}
@@ -660,7 +754,7 @@ export default function VideoPage() {
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*,audio/*,.mp3,.wav,.m4a,.aac,.ogg"
                 multiple
                 className="hidden"
                 onChange={(event) => {
@@ -683,6 +777,8 @@ function WorkbenchPanel({
     collapsedSections,
     prompt,
     references,
+    videoReferences,
+    audioReferences,
     config,
     model,
     canGenerate,
@@ -699,6 +795,8 @@ function WorkbenchPanel({
     onPasteReferences,
     onUploadReferences,
     onRemoveReference,
+    onRemoveVideoReference,
+    onRemoveAudioReference,
     onGenerate,
     bottomSettingsCollapsed,
     setBottomSettingsCollapsed,
@@ -709,6 +807,8 @@ function WorkbenchPanel({
     collapsedSections: CollapsedSections;
     prompt: string;
     references: ReferenceImage[];
+    videoReferences: ReferenceVideo[];
+    audioReferences: ReferenceAudio[];
     config: AiConfig;
     model: string;
     canGenerate: boolean;
@@ -725,6 +825,8 @@ function WorkbenchPanel({
     onPasteReferences: () => void;
     onUploadReferences: () => void;
     onRemoveReference: (id: string) => void;
+    onRemoveVideoReference: (id: string) => void;
+    onRemoveAudioReference: (id: string) => void;
     onGenerate: () => void;
     bottomSettingsCollapsed: boolean;
     setBottomSettingsCollapsed: (value: boolean) => void;
@@ -733,7 +835,7 @@ function WorkbenchPanel({
     if (layout === "bottom") {
         return (
             <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
-                <div className="pointer-events-auto w-full max-w-5xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
+                <div className="pointer-events-auto w-full max-w-7xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
                     <div className="flex flex-col gap-3">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                             <Input.TextArea
@@ -762,7 +864,7 @@ function WorkbenchPanel({
                                 </Button>
                             </div>
                         </div>
-                        <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[1.3fr_0.8fr_0.8fr_0.7fr_0.7fr_auto_auto] ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
+                        <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(190px,1.3fr)_repeat(5,minmax(86px,.72fr))_auto_minmax(112px,auto)] ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
                             <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
                                 模型
                                 <ModelPicker
@@ -782,12 +884,13 @@ function WorkbenchPanel({
                             <QuickSelect label="尺寸" value={normalizeVideoSizeValue(config.size)} options={quickSizeOptions} onChange={(value) => updateConfig("size", value)} />
                             <QuickNumber label="秒数" value={normalizeVideoSeconds(config.videoSeconds)} min={1} max={20} onChange={(value) => updateConfig("videoSeconds", value)} />
                             <QuickNumber label="任务" value={String(normalizeVideoCount(config.videoCount))} min={1} max={6} onChange={(value) => updateConfig("videoCount", value)} />
-                            <ReferenceQuickActions references={references} onPasteReferences={onPasteReferences} onUploadReferences={onUploadReferences} />
+                            <QuickNumber label="重试" value={config.retryAttempts || "0"} min={0} max={5} onChange={(value) => updateConfig("retryAttempts", value)} />
+                            <ReferenceQuickActions references={references} videoReferences={videoReferences} audioReferences={audioReferences} onPasteReferences={onPasteReferences} onUploadReferences={onUploadReferences} />
                             <Button type="primary" className="h-11 min-w-28 rounded-xl hidden lg:flex items-center justify-center gap-1.5" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                                 {pendingCount ? `${pendingCount} 生成中` : "开始创作"}
                             </Button>
                         </div>
-                        {references.length || uploadingCount > 0 ? <ReferenceStrip className="mt-3" references={references} compact onRemoveReference={onRemoveReference} uploadingCount={uploadingCount} /> : null}
+                        {references.length || videoReferences.length || audioReferences.length || uploadingCount > 0 ? <ReferenceStrip className="mt-3" references={references} videoReferences={videoReferences} audioReferences={audioReferences} compact onRemoveReference={onRemoveReference} onRemoveVideoReference={onRemoveVideoReference} onRemoveAudioReference={onRemoveAudioReference} uploadingCount={uploadingCount} /> : null}
                     </div>
                 </div>
             </div>
@@ -820,7 +923,7 @@ function WorkbenchPanel({
                     </div>
                 </CollapsibleWorkbenchSection>
 
-                <CollapsibleWorkbenchSection title="参考图" count={references.length} collapsed={collapsedSections.references} summary={references.length ? `已选择 ${references.length} 张参考图` : "暂无参考图"} onToggle={() => onToggleSection("references")}>
+                <CollapsibleWorkbenchSection title="参考素材" count={references.length + videoReferences.length + audioReferences.length} collapsed={collapsedSections.references} summary={referenceSummary(references, videoReferences, audioReferences)} onToggle={() => onToggleSection("references")}>
                     <div className="space-y-2">
                         <div className="flex flex-wrap gap-2">
                             <Button size="small" icon={<ClipboardPaste className="size-3.5" />} onClick={onPasteReferences}>
@@ -833,7 +936,7 @@ function WorkbenchPanel({
                                 从素材选择
                             </Button>
                         </div>
-                        <ReferenceStrip references={references} onRemoveReference={onRemoveReference} uploadingCount={uploadingCount} />
+                        <ReferenceStrip references={references} videoReferences={videoReferences} audioReferences={audioReferences} onRemoveReference={onRemoveReference} onRemoveVideoReference={onRemoveVideoReference} onRemoveAudioReference={onRemoveAudioReference} uploadingCount={uploadingCount} />
                     </div>
                 </CollapsibleWorkbenchSection>
 
@@ -977,7 +1080,8 @@ function CollapsibleWorkbenchSection({ title, count, collapsed, summary, childre
     );
 }
 
-function ReferenceStrip({ references, compact = false, className = "", onRemoveReference, uploadingCount = 0 }: { references: ReferenceImage[]; compact?: boolean; className?: string; onRemoveReference: (id: string) => void; uploadingCount?: number }) {
+function ReferenceStrip({ references, videoReferences, audioReferences, compact = false, className = "", onRemoveReference, onRemoveVideoReference, onRemoveAudioReference, uploadingCount = 0 }: { references: ReferenceImage[]; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; compact?: boolean; className?: string; onRemoveReference: (id: string) => void; onRemoveVideoReference: (id: string) => void; onRemoveAudioReference: (id: string) => void; uploadingCount?: number }) {
+    const hasReferences = references.length || videoReferences.length || audioReferences.length;
     return (
         <div
             className={`hover-scrollbar hover-scrollbar-hint flex w-full min-w-0 max-w-full gap-2 overflow-x-scroll overflow-y-hidden rounded-lg border border-dashed border-stone-300 p-2 overscroll-x-contain dark:border-stone-700 ${compact ? "min-h-14" : "min-h-24 pb-3"} ${className}`}
@@ -1003,23 +1107,45 @@ function ReferenceStrip({ references, compact = false, className = "", onRemoveR
                     </button>
                 </div>
             ))}
+            {videoReferences.map((item) => (
+                <MediaReferenceItem key={item.id} compact={compact} icon={<VideoIcon className="size-5" />} title={item.name} meta={[item.width && item.height ? `${item.width}x${item.height}` : "", item.durationMs ? formatDuration(item.durationMs) : ""].filter(Boolean).join(" · ")} onRemove={() => onRemoveVideoReference(item.id)} />
+            ))}
+            {audioReferences.map((item) => (
+                <MediaReferenceItem key={item.id} compact={compact} icon={<Music2 className="size-5" />} title={item.name} meta={item.durationMs ? formatDuration(item.durationMs) : "音频"} onRemove={() => onRemoveAudioReference(item.id)} />
+            ))}
             {Array.from({ length: uploadingCount }).map((_, i) => (
                 <div key={`loading-${i}`} className={`${compact ? "size-12" : "size-20"} shrink-0 flex items-center justify-center rounded-md border border-stone-200 dark:border-stone-800 bg-stone-100/50 dark:bg-stone-900/50`}>
                     <LoaderCircle className="size-5 animate-spin text-stone-400" />
                 </div>
             ))}
-            {!references.length && !uploadingCount ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图</div> : null}
+            {!hasReferences && !uploadingCount ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考素材</div> : null}
         </div>
     );
 }
 
-function ReferenceQuickActions({ references, onPasteReferences, onUploadReferences }: { references: ReferenceImage[]; onPasteReferences: () => void; onUploadReferences: () => void }) {
+function MediaReferenceItem({ compact, icon, title, meta, onRemove }: { compact: boolean; icon: ReactNode; title: string; meta: string; onRemove: () => void }) {
+    return (
+        <div className={`${compact ? "h-12 w-28" : "h-20 w-36"} group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-md border border-stone-200 bg-stone-100 px-2 dark:border-stone-800 dark:bg-stone-900`}>
+            <div className="grid size-8 shrink-0 place-items-center rounded bg-white/70 text-stone-500 dark:bg-stone-800 dark:text-stone-300">{icon}</div>
+            <div className="min-w-0 text-xs">
+                <div className="truncate font-medium text-stone-700 dark:text-stone-200">{title}</div>
+                <div className="truncate text-stone-500">{meta}</div>
+            </div>
+            <button type="button" className="absolute right-1 top-1 hidden z-10 size-6 items-center justify-center rounded bg-black/60 text-white group-hover:flex" onClick={onRemove} aria-label="移除参考素材">
+                <Trash2 className="size-3.5" />
+            </button>
+        </div>
+    );
+}
+
+function ReferenceQuickActions({ references, videoReferences, audioReferences, onPasteReferences, onUploadReferences }: { references: ReferenceImage[]; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; onPasteReferences: () => void; onUploadReferences: () => void }) {
+    const total = references.length + videoReferences.length + audioReferences.length;
     return (
         <div className="flex h-11 items-center gap-1 rounded-xl border border-stone-200 bg-background px-2 dark:border-stone-800">
             {references[0] ? <img src={references[0].dataUrl || undefined} alt={references[0].name} className="size-7 rounded object-cover" /> : null}
-            {references.length ? <span className="min-w-7 text-xs text-stone-500">{references.length} 张</span> : null}
+            {total ? <span className="min-w-7 text-xs text-stone-500">{total} 个</span> : null}
             <Button title="读取剪切板" size="small" type="text" icon={<ClipboardPaste className="size-3.5" />} onClick={onPasteReferences} />
-            <Button title="上传参考图" size="small" type="text" icon={<Upload className="size-3.5" />} onClick={onUploadReferences} />
+            <Button title="上传参考素材" size="small" type="text" icon={<Upload className="size-3.5" />} onClick={onUploadReferences} />
         </div>
     );
 }
@@ -1060,6 +1186,7 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
             <VideoSettingsPanel config={config} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-3" />
             <SettingSubsection title="并行任务" summary={`${normalizeVideoCount(config.videoCount)} 个`} collapsed={false} onToggle={() => undefined}>
                 <QuickNumber label="任务数量" value={String(normalizeVideoCount(config.videoCount))} min={1} max={6} onChange={(value) => updateConfig("videoCount", value)} />
+                <QuickNumber label="失败重试" value={config.retryAttempts || "0"} min={0} max={5} onChange={(value) => updateConfig("retryAttempts", value)} />
             </SettingSubsection>
         </div>
     );
@@ -1198,6 +1325,7 @@ function HistoryLogCard({ log, index, selected, active, syncing, onSelectedChang
                 </div>
                 <div className="flex flex-wrap gap-1">
                     <Tag className="m-0 text-[10px]">{formatLogTime(log.createdAt)}</Tag>
+                    {log.config.channelName ? <Tag className="m-0 text-[10px]">渠道 {log.config.channelName}</Tag> : null}
                     <Tag className="m-0 text-[10px]">{log.model}</Tag>
                     <Tag className="m-0 text-[10px]">{log.size}</Tag>
                     <Tag className="m-0 text-[10px]">{log.resolution}p</Tag>
@@ -1280,6 +1408,7 @@ function TaskInfo({ result, error, onCopyPrompt }: { result: GenerationResult; e
             </div>
             <div className="flex flex-wrap gap-1.5">
                 <Tag className="m-0">{formatLogTime(result.createdAt)}</Tag>
+                {result.config.channelName ? <Tag className="m-0">渠道 {result.config.channelName}</Tag> : null}
                 <Tag className="m-0">{result.model}</Tag>
                 <Tag className="m-0">{videoSizeLabel(result.config.size || "auto")}</Tag>
                 <Tag className="m-0">{videoResolutionLabel(result.config.vquality || "720")}</Tag>
@@ -1306,7 +1435,7 @@ function ReferenceThumbnailOverlay({ references, className = "" }: { references?
 }
 
 function createPendingResult(id: string, snapshot: RequestSnapshot): GenerationResult {
-    return { id, status: "pending", createdAt: Date.now(), prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references };
+    return { id, status: "pending", createdAt: Date.now(), prompt: snapshot.text, model: snapshot.displayConfig.videoModel || snapshot.displayConfig.model, config: snapshot.displayConfig, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences };
 }
 
 function videoFromGenerationResult(result: VideoGenerationResult, durationMs = result.durationMs): GeneratedVideo {
@@ -1362,6 +1491,8 @@ function videoLogScore(log: GenerationLog) {
 async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
     const video = log.video?.storageKey ? { ...log.video, source: videoSource(log.video), url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video ? { ...log.video, source: videoSource(log.video) } : log.video;
     const references = await Promise.all((log.references || []).map(async (item) => ({ ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) })));
+    const videoReferences = await Promise.all((log.videoReferences || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) })));
+    const audioReferences = await Promise.all((log.audioReferences || []).map(async (item) => ({ ...item, url: await resolveMediaUrl(item.storageKey, item.url) })));
     const config = normalizeLogConfig(log);
     return {
         id: log.id || nanoid(),
@@ -1372,6 +1503,8 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
         model: log.model || config.videoModel || "",
         config,
         references,
+        videoReferences,
+        audioReferences,
         durationMs: log.durationMs || 0,
         size: log.size || config.size || "",
         resolution: normalizeResolution(log.resolution || config.vquality || ""),
@@ -1384,7 +1517,13 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
 }
 
 function serializeLog(log: GenerationLog): GenerationLog {
-    return { ...log, references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl })), video: log.video?.storageKey ? { ...log.video, url: "" } : log.video };
+    return {
+        ...log,
+        references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl })),
+        videoReferences: (log.videoReferences || []).map((item) => ({ ...item, url: item.storageKey ? "" : item.url })),
+        audioReferences: (log.audioReferences || []).map((item) => ({ ...item, url: item.storageKey ? "" : item.url })),
+        video: log.video?.storageKey ? { ...log.video, url: "" } : log.video,
+    };
 }
 
 function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
@@ -1395,14 +1534,18 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         vquality: normalizeResolution(log.config?.vquality || log.resolution || ""),
         videoSeconds: log.config?.videoSeconds || log.seconds || "",
         videoCount: log.config?.videoCount || "1",
+        retryAttempts: log.config?.retryAttempts || "0",
+        channelId: log.config?.channelId || "",
+        channelName: log.config?.channelName || "",
     };
 }
 
 function buildGenerationLogConfig(config: AiConfig): GenerationLogConfig {
-    return { model: config.model, videoModel: config.videoModel, size: normalizeVideoSize(config.size), vquality: normalizeResolution(config.vquality), videoSeconds: normalizeVideoSeconds(config.videoSeconds), videoCount: String(normalizeVideoCount(config.videoCount)) };
+    const channelId = config.activeChannelId || config.videoChannelId;
+    return { model: config.model, videoModel: config.videoModel, size: normalizeVideoSize(config.size), vquality: normalizeResolution(config.vquality), videoSeconds: normalizeVideoSeconds(config.videoSeconds), videoCount: String(normalizeVideoCount(config.videoCount)), retryAttempts: config.retryAttempts || "0", channelId, channelName: resolveChannelName(config, channelId) };
 }
 
-function buildLog({ prompt, model, config, references, durationMs, status, video, error, errorDetail }: { prompt: string; model: string; config: GenerationLogConfig; references: ReferenceImage[]; durationMs: number; status: GenerationLog["status"]; video?: GeneratedVideo; error?: string; errorDetail?: string }): GenerationLog {
+function buildLog({ prompt, model, config, references, videoReferences, audioReferences, durationMs, status, video, error, errorDetail }: { prompt: string; model: string; config: GenerationLogConfig; references: ReferenceImage[]; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; durationMs: number; status: GenerationLog["status"]; video?: GeneratedVideo; error?: string; errorDetail?: string }): GenerationLog {
     return {
         id: nanoid(),
         createdAt: Date.now(),
@@ -1412,6 +1555,8 @@ function buildLog({ prompt, model, config, references, durationMs, status, video
         model,
         config,
         references,
+        videoReferences,
+        audioReferences,
         durationMs,
         size: config.size,
         resolution: config.vquality,
@@ -1427,8 +1572,17 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     return { ...config, model, videoModel: model, activeChannelId: config.videoChannelId, size: normalizeVideoSize(config.size), videoSeconds: normalizeVideoSeconds(config.videoSeconds), vquality: normalizeResolution(config.vquality), videoCount: String(normalizeVideoCount(config.videoCount)) };
 }
 
+function resolveChannelName(config: AiConfig, channelId?: string) {
+    if (!channelId) return "";
+    const channels = config.channelMode === "remote" ? config.publicChannels : config.localChannels;
+    return channels.find((channel) => channel.id === channelId)?.name || channelId;
+}
+
 function generationLogStorageKeys(log: GenerationLog) {
-    return { media: [log.video?.storageKey].filter((key): key is string => Boolean(key)), images: log.references.filter(isDisposableReferenceFile).map((image) => image.storageKey).filter((key): key is string => Boolean(key)) };
+    return {
+        media: [log.video?.storageKey, ...(log.videoReferences || []).map((item) => item.storageKey), ...(log.audioReferences || []).map((item) => item.storageKey)].filter((key): key is string => Boolean(key)),
+        images: log.references.filter(isDisposableReferenceFile).map((image) => image.storageKey).filter((key): key is string => Boolean(key)),
+    };
 }
 
 function isCloudVideo(video: GeneratedVideo) {
@@ -1457,7 +1611,7 @@ function isDisposableReferenceFile(reference: ReferenceImage) {
     return reference.temporary === true || reference.source === "upload" || reference.source === "clipboard";
 }
 
-function disposableLogStorageKeys(deletedLogs: GenerationLog[], remainingLogs: GenerationLog[], currentReferences: ReferenceImage[], results: GenerationResult[]) {
+function disposableLogStorageKeys(deletedLogs: GenerationLog[], remainingLogs: GenerationLog[], currentReferences: ReferenceImage[], currentVideoReferences: ReferenceVideo[], currentAudioReferences: ReferenceAudio[], results: GenerationResult[]) {
     const deleted = deletedLogs.reduce(
         (keys, log) => {
             const next = generationLogStorageKeys(log);
@@ -1479,8 +1633,20 @@ function disposableLogStorageKeys(deletedLogs: GenerationLog[], remainingLogs: G
     currentReferences.forEach((reference) => {
         if (reference.storageKey) retained.images.add(reference.storageKey);
     });
+    currentVideoReferences.forEach((reference) => {
+        if (reference.storageKey) retained.media.add(reference.storageKey);
+    });
+    currentAudioReferences.forEach((reference) => {
+        if (reference.storageKey) retained.media.add(reference.storageKey);
+    });
     results.forEach((result) => {
         if (result.video?.storageKey) retained.media.add(result.video.storageKey);
+        result.videoReferences.forEach((reference) => {
+            if (reference.storageKey) retained.media.add(reference.storageKey);
+        });
+        result.audioReferences.forEach((reference) => {
+            if (reference.storageKey) retained.media.add(reference.storageKey);
+        });
         result.references.forEach((reference) => {
             if (reference.storageKey) retained.images.add(reference.storageKey);
         });
@@ -1508,6 +1674,18 @@ function errorDetail(error: unknown) {
 
 function settingsSummary(config: AiConfig, model: string) {
     return [model, videoSizeLabel(config.size || "auto"), videoResolutionLabel(config.vquality || "720"), videoSecondsLabel(config.videoSeconds || "6"), `${normalizeVideoCount(config.videoCount)} 个任务`].join(" · ");
+}
+
+function referenceSummary(images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+    const parts = [];
+    if (images.length) parts.push(`${images.length} 张图片`);
+    if (videos.length) parts.push(`${videos.length} 个视频`);
+    if (audios.length) parts.push(`${audios.length} 段音频`);
+    return parts.length ? `已选择 ${parts.join("、")}` : "暂无参考素材";
+}
+
+function isSupportedAudioFile(file: File) {
+    return file.type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name);
 }
 
 function normalizeVideoSeconds(value: string) {

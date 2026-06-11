@@ -7,7 +7,7 @@ import { apiGet } from "@/services/api/request";
 import { loadUserStorageProvider, type UserStorageProvider } from "@/services/image-storage";
 import { useUserStore } from "@/stores/use-user-store";
 
-export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number };
+export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
@@ -19,7 +19,7 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file"): Pr
     await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
-    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : {};
+    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
     return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
 }
 
@@ -58,7 +58,7 @@ async function uploadMediaBlobToServer(blob: Blob, filename: string): Promise<Up
     const response = await fetch("/api/v1/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
     const payload = (await response.json().catch(() => null)) as { code?: number; msg?: string; data?: UploadedFile } | null;
     if (!response.ok || payload?.code !== 0 || !payload.data) throw new Error(payload?.msg || "视频同步失败");
-    const meta = payload.data.mimeType?.startsWith("video/") ? await readVideoMeta(payload.data.url) : {};
+    const meta = payload.data.mimeType?.startsWith("video/") ? await readVideoMeta(payload.data.url) : payload.data.mimeType?.startsWith("audio/") ? await readAudioMeta(payload.data.url) : {};
     return { ...payload.data, bytes: payload.data.bytes || blob.size, mimeType: payload.data.mimeType || blob.type || "video/mp4", ...meta };
 }
 
@@ -132,7 +132,7 @@ export async function deleteStoredMedia(keys: Iterable<string>) {
     const { useAssetStore } = await import("@/stores/use-asset-store");
     const assetKeys = new Set(
         useAssetStore.getState().assets
-            .map((a) => (a.kind === "video" ? a.data.storageKey : null))
+            .map((a) => (a.kind === "video" || a.kind === "audio" ? a.data.storageKey : null))
             .filter((k): k is string => Boolean(k))
     );
     await Promise.all(
@@ -167,12 +167,22 @@ export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()
 }
 
 function readVideoMeta(url: string) {
-    return new Promise<{ width: number; height: number }>((resolve) => {
+    return new Promise<{ width: number; height: number; durationMs?: number }>((resolve) => {
         const video = document.createElement("video");
-        const done = () => resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720 });
+        const done = () => resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined });
         video.onloadedmetadata = done;
         video.onerror = done;
         video.src = url;
+    });
+}
+
+function readAudioMeta(url: string) {
+    return new Promise<{ durationMs?: number }>((resolve) => {
+        const audio = document.createElement("audio");
+        const done = () => resolve({ durationMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined });
+        audio.onloadedmetadata = done;
+        audio.onerror = done;
+        audio.src = url;
     });
 }
 

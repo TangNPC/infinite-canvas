@@ -9,6 +9,7 @@ import axios from "axios";
 import { cn } from "@/lib/utils";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { fetchAssetLibrary, type AssetLibraryItem } from "@/services/api/assets";
+import { uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
 
 export type AssetPickerTab = "my-assets" | "library";
@@ -16,7 +17,8 @@ export type AssetPickerTab = "my-assets" | "library";
 export type InsertAssetPayload =
     | { kind: "text"; content: string; title: string; assetId?: string; source?: "asset" | "library" }
     | { kind: "image"; dataUrl: string; title: string; storageKey?: string; assetId?: string; width?: number; height?: number; bytes?: number; mimeType?: string; source?: "asset" | "library" }
-    | { kind: "video"; url: string; title: string; storageKey?: string; assetId?: string; width?: number; height?: number; bytes?: number; mimeType?: string; source?: "asset" | "library" };
+    | { kind: "video"; url: string; title: string; storageKey?: string; assetId?: string; width?: number; height?: number; bytes?: number; mimeType?: string; source?: "asset" | "library" }
+    | { kind: "audio"; url: string; title: string; storageKey?: string; assetId?: string; durationMs?: number; bytes?: number; mimeType?: string; source?: "asset" | "library" };
 
 type Props = {
     open: boolean;
@@ -53,6 +55,7 @@ const kindOptions = [
     { label: "文本", value: "text" },
     { label: "图片", value: "image" },
     { label: "视频", value: "video" },
+    { label: "音频", value: "audio" },
 ];
 
 function LibraryTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => void }) {
@@ -162,7 +165,7 @@ function PickerCard({ title, kind, cover, loading, onClick }: { title: string; k
             <div className="p-2.5">
                 <div className="flex items-center justify-between gap-2">
                     <span className="line-clamp-1 text-xs font-medium text-stone-800 dark:text-stone-200">{title}</span>
-                    <Tag className="m-0 shrink-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : "文本"}</Tag>
+                    <Tag className="m-0 shrink-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本"}</Tag>
                 </div>
             </div>
             {loading && (
@@ -194,7 +197,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const [kindFilter, setKindFilter] = useState("all");
     const [page, setPage] = useState(1);
     const [createOpen, setCreateOpen] = useState(false);
-    const [createKind, setCreateKind] = useState<"text" | "image">("image");
+    const [createKind, setCreateKind] = useState<"text" | "image" | "audio">("image");
     const [createTitle, setCreateTitle] = useState("");
     const [createText, setCreateText] = useState("");
     const [saving, setSaving] = useState(false);
@@ -204,7 +207,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets
-            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video")
+            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video" || a.kind === "audio")
             .filter((a) => kindFilter === "all" || a.kind === kindFilter)
             .filter((a) => !query || [a.title, ...(a.tags || [])].join(" ").toLowerCase().includes(query));
     }, [assets, keyword, kindFilter]);
@@ -219,12 +222,12 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const handleInsert = (asset: Asset) => {
         if (asset.kind === "text") {
             onInsert({ kind: "text", content: asset.data.content, title: asset.title, assetId: asset.id, source: "asset" });
+        } else if (asset.kind === "video") {
+            onInsert({ kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType, source: "asset" });
+        } else if (asset.kind === "audio") {
+            onInsert({ kind: "audio", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id, durationMs: asset.data.durationMs, bytes: asset.data.bytes, mimeType: asset.data.mimeType, source: "asset" });
         } else {
-            onInsert(
-                asset.kind === "video"
-                    ? { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType, source: "asset" }
-                    : { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType, source: "asset" },
-            );
+            onInsert({ kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title, assetId: asset.id, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType, source: "asset" });
         }
     };
 
@@ -250,7 +253,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                     return;
                 }
                 addAsset({ kind: "text", title, coverUrl: "", tags: [], source: "素材选择器", data: { content } });
-            } else {
+            } else if (createKind === "image") {
                 if (!selectedFile) {
                     message.error("请选择图片");
                     return;
@@ -263,6 +266,20 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                     tags: [],
                     source: "素材选择器",
                     data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType },
+                });
+            } else {
+                if (!selectedFile) {
+                    message.error("请选择音频");
+                    return;
+                }
+                const stored = await uploadMediaFile(selectedFile, "audio-asset");
+                addAsset({
+                    kind: "audio",
+                    title,
+                    coverUrl: "",
+                    tags: [],
+                    source: "素材选择器",
+                    data: { url: stored.url, storageKey: stored.storageKey, durationMs: stored.durationMs, bytes: stored.bytes, mimeType: stored.mimeType },
                 });
             }
             message.success("素材已新增");
@@ -342,6 +359,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                         {[
                             { value: "image" as const, label: "图片" },
                             { value: "text" as const, label: "文本" },
+                            { value: "audio" as const, label: "音频" },
                         ].map((item) => (
                             <Tag.CheckableTag key={item.value} checked={createKind === item.value} className={cn("prompt-filter-tag", createKind === item.value && "is-active")} onChange={() => setCreateKind(item.value)}>
                                 {item.label}
@@ -353,9 +371,9 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
                         <Input.TextArea value={createText} autoSize={{ minRows: 5, maxRows: 10 }} placeholder="文本内容" onChange={(event) => setCreateText(event.target.value)} />
                     ) : (
                         <div className="space-y-2">
-                            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
+                            <input ref={fileInputRef} type="file" accept={createKind === "audio" ? "audio/*,.mp3,.wav,.m4a,.aac,.ogg" : "image/*"} className="hidden" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
                             <Button icon={<ImagePlus className="size-4" />} onClick={() => fileInputRef.current?.click()}>
-                                {selectedFile ? selectedFile.name : "选择图片"}
+                                {selectedFile ? selectedFile.name : createKind === "audio" ? "选择音频" : "选择图片"}
                             </Button>
                         </div>
                     )}

@@ -43,6 +43,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
             const target = event.target;
             if (!(target instanceof Node)) return;
             if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+            if (document.activeElement instanceof HTMLElement && panelRef.current?.contains(document.activeElement)) document.activeElement.blur();
             setOpen(false);
             onOpenChange?.(false);
         };

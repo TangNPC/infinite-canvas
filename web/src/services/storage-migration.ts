@@ -21,7 +21,7 @@ export async function checkLocalAssetsExist(): Promise<boolean> {
         if (found) return true;
 
         await mediaStore.iterate((_val, key) => {
-            if (key.startsWith("file:") || key.startsWith("video:")) {
+            if (key.includes(":")) {
                 found = true;
                 return true; // Stop iteration early
             }
@@ -56,7 +56,7 @@ export async function migrateLocalAssetsToCloud(
 
     const mediaToUpload: { key: string; blob: Blob }[] = [];
     await mediaStore.iterate((blob, key) => {
-        if ((key.startsWith("file:") || key.startsWith("video:")) && blob instanceof Blob) {
+        if (key.includes(":") && blob instanceof Blob) {
             mediaToUpload.push({ key, blob });
         }
     });
@@ -115,7 +115,7 @@ export async function migrateLocalAssetsToCloud(
                 if (localBlobUrl && localBlobUrl.startsWith("blob:")) {
                     resultStr = resultStr.replaceAll(localBlobUrl, value.url);
                 }
-            } else if (localKey.startsWith("file:") || localKey.startsWith("video:")) {
+            } else if (localKey.includes(":")) {
                 const localBlobUrl = await resolveMediaUrl(localKey);
                 if (localBlobUrl && localBlobUrl.startsWith("blob:")) {
                     resultStr = resultStr.replaceAll(localBlobUrl, value.url);
@@ -232,7 +232,7 @@ export async function migrateLocalAssetsToCloud(
                 await imageStore.setItem(value.serverKey, blob);
                 await imageStore.removeItem(localKey);
             }
-        } else if (localKey.startsWith("file:") || localKey.startsWith("video:")) {
+        } else if (localKey.includes(":")) {
             const blob = await mediaStore.getItem<Blob>(localKey);
             if (blob) {
                 await mediaStore.setItem(value.serverKey, blob);
