@@ -1155,48 +1155,52 @@ function WorkbenchPanel({
                                 </Button>
                             </div>
                         </div>
-                        <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(170px,1.25fr)_minmax(120px,.9fr)_repeat(4,minmax(88px,.72fr))_minmax(82px,.62fr)_minmax(82px,.62fr)_auto_minmax(112px,auto)] ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
-                            <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
-                                模型
-                                <ModelPicker
-                                    config={config}
-                                    value={model}
-                                    channelId={config.imageChannelId}
-                                    onChange={(value, channelId) => {
-                                        updateConfig("imageModel", value);
-                                        if (channelId) updateConfig("imageChannelId", channelId);
-                                    }}
-                                    className="canvas-compact-control !h-11 !rounded-xl"
-                                    onMissingConfig={() => openConfigDialog(false)}
-                                    fullWidth
-                                />
-                            </label>
-                            <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
-                                接口模式
-                                <div className="flex h-11 items-center rounded-xl border border-stone-200 bg-background px-2.5 dark:border-stone-800">
-                                    <Segmented
-                                        size="small"
-                                        className="canvas-config-mode !rounded-md !p-0.5 w-full"
-                                        value={config.apiMode}
-                                        onChange={(value) => updateConfig("apiMode", value as "images" | "responses")}
-                                        options={[
-                                            { value: "images", label: "images" },
-                                            { value: "responses", label: "responses" },
-                                        ]}
+                        <div className={`gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(148px,170px)] lg:items-end ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(170px,1.25fr)_minmax(120px,.9fr)_repeat(4,minmax(88px,.72fr))_minmax(82px,.62fr)_minmax(82px,.62fr)_minmax(82px,.62fr)]">
+                                <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+                                    模型
+                                    <ModelPicker
+                                        config={config}
+                                        value={model}
+                                        channelId={config.imageChannelId}
+                                        onChange={(value, channelId) => {
+                                            updateConfig("imageModel", value);
+                                            if (channelId) updateConfig("imageChannelId", channelId);
+                                        }}
+                                        className="canvas-compact-control !h-11 !rounded-xl"
+                                        onMissingConfig={() => openConfigDialog(false)}
+                                        fullWidth
                                     />
-                                </div>
-                            </label>
-                            <QuickSelect label="尺寸" value={config.size || "auto"} options={quickSizeOptions} onChange={(value) => updateConfig("size", value)} />
-                            <QuickSelect label="质量" value={config.quality || "auto"} options={quickQualityOptions} onChange={(value) => updateConfig("quality", value)} />
-                            <QuickSelect label="格式" value={config.outputFormat || "png"} options={quickFormatOptions} onChange={(value) => updateConfig("outputFormat", value as AiConfig["outputFormat"])} />
-                            <QuickNumber label="压缩" value={config.outputCompression || "100"} min={0} max={100} disabled={(config.outputFormat || "png") === "png"} onChange={(value) => updateConfig("outputCompression", value)} />
-                            <QuickSelect label="审核" value={config.moderation || "auto"} options={quickModerationOptions} onChange={(value) => updateConfig("moderation", value as AiConfig["moderation"])} />
-                            <QuickNumber label="数量" value={config.count || "1"} min={1} max={10} onChange={(value) => updateConfig("count", value)} />
-                            <QuickNumber label="重试" value={config.retryAttempts || "0"} min={0} max={5} onChange={(value) => updateConfig("retryAttempts", value)} />
-                            <ReferenceQuickActions references={references} onUploadReferences={onUploadReferences} />
-                            <Button type="primary" className="h-11 min-w-28 rounded-xl hidden lg:inline-flex" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
-                                {pendingCount ? `${pendingCount} 生成中` : "开始创作"}
-                            </Button>
+                                </label>
+                                <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+                                    接口模式
+                                    <div className="flex h-11 items-center rounded-xl border border-stone-200 bg-background px-2.5 dark:border-stone-800">
+                                        <Segmented
+                                            size="small"
+                                            className="canvas-config-mode !rounded-md !p-0.5 w-full"
+                                            value={config.apiMode}
+                                            onChange={(value) => updateConfig("apiMode", value as "images" | "responses")}
+                                            options={[
+                                                { value: "images", label: "images" },
+                                                { value: "responses", label: "responses" },
+                                            ]}
+                                        />
+                                    </div>
+                                </label>
+                                <QuickSelect label="尺寸" value={config.size || "auto"} options={quickSizeOptions} onChange={(value) => updateConfig("size", value)} />
+                                <QuickSelect label="质量" value={config.quality || "auto"} options={quickQualityOptions} onChange={(value) => updateConfig("quality", value)} />
+                                <QuickSelect label="格式" value={config.outputFormat || "png"} options={quickFormatOptions} onChange={(value) => updateConfig("outputFormat", value as AiConfig["outputFormat"])} />
+                                <QuickNumber label="压缩" value={config.outputCompression || "100"} min={0} max={100} disabled={(config.outputFormat || "png") === "png"} onChange={(value) => updateConfig("outputCompression", value)} />
+                                <QuickSelect label="审核" value={config.moderation || "auto"} options={quickModerationOptions} onChange={(value) => updateConfig("moderation", value as AiConfig["moderation"])} />
+                                <QuickNumber label="数量" value={config.count || "1"} min={1} max={10} onChange={(value) => updateConfig("count", value)} />
+                                <QuickNumber label="重试" value={config.retryAttempts || "0"} min={0} max={5} onChange={(value) => updateConfig("retryAttempts", value)} />
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-[auto_minmax(140px,1fr)] lg:grid-cols-1">
+                                <ReferenceQuickActions references={references} onUploadReferences={onUploadReferences} />
+                                <Button type="primary" className="hidden h-11 rounded-xl font-medium lg:inline-flex lg:w-full lg:justify-center" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
+                                    {pendingCount ? `${pendingCount} 生成中` : "开始创作"}
+                                </Button>
+                            </div>
                         </div>
                         {references.length || uploadingCount > 0 ? <ReferenceStrip className="mt-3" references={references} compact onRemoveReference={onRemoveReference} uploadingCount={uploadingCount} /> : null}
                     </div>

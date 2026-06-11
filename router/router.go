@@ -38,8 +38,6 @@ func New() *gin.Engine {
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
 	v1.POST("/chat/completions", gin.WrapF(handler.AIChatCompletions))
 	v1.POST("/responses", gin.WrapF(handler.AIResponses))
-	v1.POST("/audio/speech", gin.WrapF(handler.AIAudioSpeech))
-	v1.POST("/videos", gin.WrapF(handler.AIVideos))
 	v1.POST("/files", gin.WrapF(handler.UploadFile))
 	v1.POST("/media/references", gin.WrapF(handler.UploadReferenceMedia))
 	v1.DELETE("/files/:id", func(c *gin.Context) {
@@ -52,8 +50,6 @@ func New() *gin.Engine {
 	v1.POST("/user-data/canvas", gin.WrapF(handler.SaveUserCanvasData))
 	v1.GET("/user-data/image-history", gin.WrapF(handler.UserImageHistory))
 	v1.POST("/user-data/image-history", gin.WrapF(handler.SaveUserImageHistory))
-	v1.GET("/user-data/video-history", gin.WrapF(handler.UserVideoHistory))
-	v1.POST("/user-data/video-history", gin.WrapF(handler.SaveUserVideoHistory))
 	v1.GET("/user-data/assets", gin.WrapF(handler.UserAssetData))
 	v1.POST("/user-data/assets", gin.WrapF(handler.SaveUserAssetData))
 	v1.POST("/ai-logs", gin.WrapF(handler.ClientAICallLog))
@@ -64,12 +60,6 @@ func New() *gin.Engine {
 		handler.DeleteUserWorkflow(c.Writer, c.Request, c.Param("id"))
 	})
 	v1.POST("/storage/measure", gin.WrapF(handler.MeasureUserStorageProvider))
-	v1.GET("/videos/:id", func(c *gin.Context) {
-		handler.AIVideo(c.Writer, c.Request, c.Param("id"))
-	})
-	v1.GET("/videos/:id/content", func(c *gin.Context) {
-		handler.AIVideoContent(c.Writer, c.Request, c.Param("id"))
-	})
 	api.GET("/prompts", middleware.OptionalAuth, gin.WrapF(handler.Prompts))
 	api.GET("/assets", middleware.OptionalAuth, gin.WrapF(handler.Assets))
 	api.POST("/admin/login", gin.WrapF(handler.AdminLogin))

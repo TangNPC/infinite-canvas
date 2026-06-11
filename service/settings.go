@@ -99,9 +99,6 @@ func normalizePublicSetting(setting model.PublicSetting) model.PublicSetting {
 	if strings.TrimSpace(setting.ModelChannel.SystemPrompts.Image) == "" {
 		setting.ModelChannel.SystemPrompts.Image = firstNonEmpty(setting.ModelChannel.SystemPrompt, DefaultSystemPrompts().Image)
 	}
-	if strings.TrimSpace(setting.ModelChannel.SystemPrompts.Video) == "" {
-		setting.ModelChannel.SystemPrompts.Video = DefaultSystemPrompts().Video
-	}
 	if strings.TrimSpace(setting.ModelChannel.SystemPrompts.Text) == "" {
 		setting.ModelChannel.SystemPrompts.Text = firstNonEmpty(setting.ModelChannel.SystemPrompt, DefaultSystemPrompts().Text)
 	}
@@ -175,7 +172,6 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 func DefaultSystemPrompts() model.SystemPromptSetting {
 	return model.SystemPromptSetting{
 		Image:    "",
-		Video:    "",
 		Text:     "",
 		Workflow: "",
 		WorkflowAgent: `你是一个用于创建图片创作工作流的产品设计助理。请根据用户需求输出严格 JSON，不要输出 Markdown。
@@ -643,7 +639,6 @@ func repairDefaultModels(setting model.PublicModelChannelSetting) model.PublicMo
 	}
 	setting.DefaultTextModel = validOrFallback(setting.DefaultTextModel, models, firstModelByCapability(models, "text"))
 	setting.DefaultImageModel = validOrFallback(setting.DefaultImageModel, models, firstModelByCapability(models, "image"))
-	setting.DefaultVideoModel = validOrFallback(setting.DefaultVideoModel, models, firstModelByCapability(models, "video"))
 	setting.DefaultModel = validOrFallback(setting.DefaultModel, models, setting.DefaultTextModel)
 	return setting
 }
@@ -675,10 +670,8 @@ func modelMatchesCapability(modelName string, capability string) bool {
 	switch capability {
 	case "image":
 		return strings.Contains(value, "image") || strings.Contains(value, "seedream") || strings.Contains(value, "flux") || strings.Contains(value, "dall")
-	case "video":
-		return strings.Contains(value, "video") || strings.Contains(value, "seedance") || strings.Contains(value, "wan") || strings.Contains(value, "kling")
 	default:
-		return !modelMatchesCapability(modelName, "image") && !modelMatchesCapability(modelName, "video")
+		return !modelMatchesCapability(modelName, "image")
 	}
 }
 

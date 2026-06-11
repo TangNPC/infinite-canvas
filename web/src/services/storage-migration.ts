@@ -1,27 +1,17 @@
 import localforage from "localforage";
 import { uploadImage } from "./image-storage";
-import { uploadMediaBlob } from "./file-storage";
 import { useCanvasStore, mergeCanvasProjects } from "@/app/(user)/canvas/stores/use-canvas-store";
 import { useAssetStore, mergeAssets } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { fetchUserConfig, syncUserCanvasData, syncUserAssetData, syncUserImageHistory, syncUserVideoHistory } from "./api/user-config";
+import { fetchUserConfig, syncUserCanvasData, syncUserAssetData, syncUserImageHistory } from "./api/user-config";
 
 export async function checkLocalAssetsExist(): Promise<boolean> {
     const imageStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
-    const mediaStore = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 
     let found = false;
     try {
         await imageStore.iterate((_val, key) => {
             if (key.startsWith("image:")) {
-                found = true;
-                return true; // Stop iteration early
-            }
-        });
-        if (found) return true;
-
-        await mediaStore.iterate((_val, key) => {
-            if (key.includes(":")) {
                 found = true;
                 return true; // Stop iteration early
             }
@@ -44,7 +34,6 @@ export async function migrateLocalAssetsToCloud(
     const remoteAssets = userConfig?.assetData as { assets?: any[] } | undefined;
 
     const imageStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
-    const mediaStore = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 
     // 1. Gather all local keys and their blobs
     const imagesToUpload: { key: string; blob: Blob }[] = [];
@@ -54,14 +43,7 @@ export async function migrateLocalAssetsToCloud(
         }
     });
 
-    const mediaToUpload: { key: string; blob: Blob }[] = [];
-    await mediaStore.iterate((blob, key) => {
-        if (key.includes(":") && blob instanceof Blob) {
-            mediaToUpload.push({ key, blob });
-        }
-    });
-
-    const total = imagesToUpload.length + mediaToUpload.length;
+    const total = imagesToUpload.length;
     if (total === 0) return;
 
     let current = 0;
@@ -81,29 +63,12 @@ export async function migrateLocalAssetsToCloud(
         onProgress(current, total);
     }
 
-    // 3. Upload media to S3
-    for (const item of mediaToUpload) {
-        try {
-            const ext = item.blob.type.split("/")[1] || "mp4";
-            const filename = `media-${item.key.replace(":", "-")}.${ext}`;
-            const result = await uploadMediaBlob(item.blob, filename);
-            if (result.storageKey && result.storageKey.startsWith("server:")) {
-                keyMapping.set(item.key, { serverKey: result.storageKey, url: result.url });
-            }
-        } catch (e) {
-            console.error(`Failed to migrate media ${item.key}`, e);
-        }
-        current++;
-        onProgress(current, total);
-    }
-
     if (keyMapping.size === 0) return;
 
     // Helper to replace keys and blob URLs in any text/json
     const replaceKeysInString = async (jsonStr: string): Promise<string> => {
         let resultStr = jsonStr;
         const { resolveImageUrl } = await import("./image-storage");
-        const { resolveMediaUrl } = await import("./file-storage");
 
         for (const [localKey, value] of keyMapping.entries()) {
             resultStr = resultStr.replaceAll(`"${localKey}"`, `"${value.serverKey}"`);
@@ -112,11 +77,6 @@ export async function migrateLocalAssetsToCloud(
 
             if (localKey.startsWith("image:")) {
                 const localBlobUrl = await resolveImageUrl(localKey);
-                if (localBlobUrl && localBlobUrl.startsWith("blob:")) {
-                    resultStr = resultStr.replaceAll(localBlobUrl, value.url);
-                }
-            } else if (localKey.includes(":")) {
-                const localBlobUrl = await resolveMediaUrl(localKey);
                 if (localBlobUrl && localBlobUrl.startsWith("blob:")) {
                     resultStr = resultStr.replaceAll(localBlobUrl, value.url);
                 }
@@ -198,45 +158,13 @@ export async function migrateLocalAssetsToCloud(
         }
     }
 
-    // 7. Update Video Generation Logs
-    const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
-    const localVideoLogs: any[] = [];
-    await videoLogStore.iterate((value) => {
-        localVideoLogs.push(value);
-    });
-
-    if (localVideoLogs.length > 0) {
-        try {
-            const videoLogsStr = JSON.stringify({ logs: localVideoLogs });
-            const replacedVideoLogsStr = await replaceKeysInString(videoLogsStr);
-            const nextVideoLogsData = JSON.parse(replacedVideoLogsStr);
-
-            // Save locally
-            await videoLogStore.clear();
-            await Promise.all(
-                nextVideoLogsData.logs.map((log: any) => videoLogStore.setItem(log.id, log))
-            );
-
-            // Sync to server
-            await syncUserVideoHistory(token, { logs: nextVideoLogsData.logs });
-        } catch (e) {
-            console.error("Failed to migrate video logs", e);
-        }
-    }
-
-    // 8. Cache old local files under the new server keys
+    // 7. Cache old local files under the new server keys
     for (const [localKey, value] of keyMapping.entries()) {
         if (localKey.startsWith("image:")) {
             const blob = await imageStore.getItem<Blob>(localKey);
             if (blob) {
                 await imageStore.setItem(value.serverKey, blob);
                 await imageStore.removeItem(localKey);
-            }
-        } else if (localKey.includes(":")) {
-            const blob = await mediaStore.getItem<Blob>(localKey);
-            if (blob) {
-                await mediaStore.setItem(value.serverKey, blob);
-                await mediaStore.removeItem(localKey);
             }
         }
     }

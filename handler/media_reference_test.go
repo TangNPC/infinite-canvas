@@ -7,7 +7,7 @@ import (
 	"github.com/basketikun/infinite-canvas/config"
 )
 
-func TestNormalizeReferenceMediaTypeSupportsAudio(t *testing.T) {
+func TestNormalizeReferenceMediaTypeSupportsImages(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
@@ -15,8 +15,8 @@ func TestNormalizeReferenceMediaTypeSupportsAudio(t *testing.T) {
 		wantMime    string
 		wantExt     string
 	}{
-		{name: "mp3 mime", contentType: "audio/mpeg", ext: ".bin", wantMime: "audio/mpeg", wantExt: ".mp3"},
-		{name: "wav ext fallback", contentType: "application/octet-stream", ext: ".wav", wantMime: "audio/wav", wantExt: ".wav"},
+		{name: "png mime", contentType: "image/png", ext: ".bin", wantMime: "image/png", wantExt: ".png"},
+		{name: "webp ext fallback", contentType: "application/octet-stream", ext: ".webp", wantMime: "image/webp", wantExt: ".webp"},
 	}
 
 	for _, tt := range tests {
@@ -33,12 +33,6 @@ func TestNormalizeReferenceMediaTypeSupportsAudio(t *testing.T) {
 }
 
 func TestReferenceMediaTypeMaxBytes(t *testing.T) {
-	if got := referenceMediaTypeMaxBytes("audio/mpeg"); got != referenceAudioMaxBytes {
-		t.Fatalf("audio max bytes = %d, want %d", got, referenceAudioMaxBytes)
-	}
-	if got := referenceMediaTypeMaxBytes("video/mp4"); got != referenceVideoMaxBytes {
-		t.Fatalf("video max bytes = %d, want %d", got, referenceVideoMaxBytes)
-	}
 	if got := referenceMediaTypeMaxBytes("image/png"); got != referenceImageMaxBytes {
 		t.Fatalf("image max bytes = %d, want %d", got, referenceImageMaxBytes)
 	}

@@ -32,10 +32,9 @@ const emptySettings: AdminSettings = {
             channels: [],
             defaultModel: "",
             defaultImageModel: "",
-            defaultVideoModel: "",
             defaultTextModel: "",
             systemPrompt: "",
-            systemPrompts: { image: "", video: "", text: "", workflow: "", workflowAgent: "" },
+            systemPrompts: { image: "", text: "", workflow: "", workflowAgent: "" },
             allowCustomChannel: true,
         },
         auth: { allowRegister: true, linuxDo: { enabled: false } },
@@ -447,11 +446,6 @@ export default function AdminSettingsPage() {
                                         </Form.Item>
                                     </Col>
                                     <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultVideoModel"]} label="默认视频模型">
-                                            <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
                                         <Form.Item name={["public", "modelChannel", "defaultTextModel"]} label="默认文本模型">
                                             <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
                                         </Form.Item>
@@ -462,11 +456,6 @@ export default function AdminSettingsPage() {
                                             <Col xs={24} md={12}>
                                                 <Form.Item name={["public", "modelChannel", "systemPrompts", "image"]} label="生图系统提示词">
                                                     <Input.TextArea rows={4} placeholder="会自动追加在生图提示词前，不在输入框中展示" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={12}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "video"]} label="视频系统提示词">
-                                                    <Input.TextArea rows={4} placeholder="会自动追加在视频提示词前" />
                                                 </Form.Item>
                                             </Col>
                                             <Col xs={24} md={12}>
@@ -1036,7 +1025,6 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             systemPrompts: {
                 ...emptySettings.public.modelChannel.systemPrompts,
                 image: setting.modelChannel?.systemPrompts?.image || setting.modelChannel?.systemPrompt || "",
-                video: setting.modelChannel?.systemPrompts?.video || "",
                 text: setting.modelChannel?.systemPrompts?.text || setting.modelChannel?.systemPrompt || "",
                 workflow: setting.modelChannel?.systemPrompts?.workflow || "",
                 workflowAgent: setting.modelChannel?.systemPrompts?.workflowAgent || "",

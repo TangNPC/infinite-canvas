@@ -36,7 +36,6 @@ type PublicModelChannelSetting struct {
 	Channels           []PublicModelChannelInfo `json:"channels"`
 	DefaultModel       string                   `json:"defaultModel"`
 	DefaultImageModel  string                   `json:"defaultImageModel"`
-	DefaultVideoModel  string                   `json:"defaultVideoModel"`
 	DefaultTextModel   string                   `json:"defaultTextModel"`
 	SystemPrompt       string                   `json:"systemPrompt"`
 	SystemPrompts      SystemPromptSetting      `json:"systemPrompts"`
@@ -45,7 +44,6 @@ type PublicModelChannelSetting struct {
 
 type SystemPromptSetting struct {
 	Image         string `json:"image"`
-	Video         string `json:"video"`
 	Text          string `json:"text"`
 	Workflow      string `json:"workflow"`
 	WorkflowAgent string `json:"workflowAgent"`

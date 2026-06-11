@@ -3,7 +3,7 @@
 import { Copy, Download, FolderPlus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { App, Button, Card, Drawer, Empty, Image, Input, Modal, Pagination, Spin, Tag, Typography } from "antd";
+import { App, Button, Card, Drawer, Empty, Image, Input, Pagination, Spin, Tag, Typography } from "antd";
 import axios from "axios";
 import { saveAs } from "file-saver";
 
@@ -24,7 +24,6 @@ export default function AssetLibraryPage() {
     const [page, setPage] = useState(1);
     const [selectedAsset, setSelectedAsset] = useState<AssetLibraryItem | null>(null);
     const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-    const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
     const addAsset = useAssetStore((state) => state.addAsset);
 
     const query = useQuery({
@@ -82,7 +81,7 @@ export default function AssetLibraryPage() {
     };
 
     const downloadLibraryAsset = async (asset: AssetLibraryItem) => {
-        if (asset.type !== "image" && asset.type !== "video") return;
+        if (asset.type !== "image") return;
         const url = asset.url;
         const filename = `${asset.title || "library-asset"}.${url.split(".").pop()?.split("?")[0] || "png"}`;
 
@@ -196,7 +195,6 @@ export default function AssetLibraryPage() {
                                 onAdd={() => void saveToMyAssets(asset)}
                                 onCopy={(a) => copyText(a.content, "文本已复制")}
                                 onPreviewImage={setPreviewImageUrl}
-                                onPlayVideo={setPreviewVideoUrl}
                                 onDownload={(a) => void downloadLibraryAsset(a)}
                             />
                         ))}
@@ -273,29 +271,6 @@ export default function AssetLibraryPage() {
                 />
             </div>
 
-            {/* 视频 Modal 播放器 */}
-            <Modal
-                open={Boolean(previewVideoUrl)}
-                onCancel={() => setPreviewVideoUrl(null)}
-                footer={null}
-                destroyOnHidden
-                centered
-                width={800}
-                styles={{
-                    body: {
-                        padding: 0,
-                        backgroundColor: "#000",
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        minHeight: 300,
-                    },
-                }}
-            >
-                {previewVideoUrl && (
-                    <video src={previewVideoUrl} controls autoPlay className="max-h-[70vh] max-w-full rounded" />
-                )}
-            </Modal>
         </div>
     );
 }
@@ -306,7 +281,6 @@ function LibraryCard({
     onAdd,
     onCopy,
     onPreviewImage,
-    onPlayVideo,
     onDownload,
 }: {
     asset: AssetLibraryItem;
@@ -314,7 +288,6 @@ function LibraryCard({
     onAdd: () => void;
     onCopy: (asset: AssetLibraryItem) => void;
     onPreviewImage: (url: string) => void;
-    onPlayVideo: (url: string) => void;
     onDownload: (asset: AssetLibraryItem) => void;
 }) {
     const cover = asset.coverUrl;
@@ -324,8 +297,6 @@ function LibraryCard({
             onCopy(asset);
         } else if (asset.type === "image") {
             onPreviewImage(asset.url || asset.coverUrl);
-        } else if (asset.type === "video") {
-            onPlayVideo(asset.url);
         }
     };
 
@@ -351,7 +322,7 @@ function LibraryCard({
                     <div className="flex items-start justify-between gap-3">
                         <h2 className="line-clamp-1 text-sm font-semibold text-stone-950 dark:text-stone-100">{asset.title}</h2>
                         <Tag className="m-0 shrink-0 text-[11px]">
-                            {asset.type === "image" ? "图片" : asset.type === "video" ? "视频" : "文本"}
+                            {asset.type === "image" ? "图片" : "文本"}
                         </Tag>
                     </div>
                     <Typography.Paragraph type="secondary" ellipsis={{ rows: 3 }} className="!mb-0 !mt-2 !text-xs !leading-5">

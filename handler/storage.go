@@ -127,31 +127,6 @@ func SaveUserImageHistory(w http.ResponseWriter, r *http.Request) {
 	OK(w, json.RawMessage(data))
 }
 
-func UserVideoHistory(w http.ResponseWriter, r *http.Request) {
-	data, err := service.CurrentUserVideoHistory(r.Context())
-	if err != nil {
-		FailError(w, err)
-		return
-	}
-	OK(w, json.RawMessage(data))
-}
-
-func SaveUserVideoHistory(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.Data) == 0 {
-		Fail(w, "数据内容不能为空")
-		return
-	}
-	data, err := service.SaveCurrentUserVideoHistory(r.Context(), request.Data)
-	if err != nil {
-		FailError(w, err)
-		return
-	}
-	OK(w, json.RawMessage(data))
-}
-
 func UserAssetData(w http.ResponseWriter, r *http.Request) {
 	data, err := service.CurrentUserAssetData(r.Context())
 	if err != nil {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Modal, Segmented, Tooltip } from "antd";
-import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload, Video } from "lucide-react";
+import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Pencil, Plus, RefreshCw, Settings2, Trash2, Upload } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
@@ -106,14 +106,10 @@ export function CanvasNodeHoverToolbar({
     const left = viewport.x + (currentNode.position.x + currentNode.width / 2) * viewport.k;
     const top = viewport.y + currentNode.position.y * viewport.k - 14;
     const isImage = currentNode.type === CanvasNodeType.Image;
-    const isVideo = currentNode.type === CanvasNodeType.Video;
-    const isAudio = currentNode.type === CanvasNodeType.Audio;
     const hasImage = isImage && Boolean(currentNode.metadata?.content);
-    const hasVideo = isVideo && Boolean(currentNode.metadata?.content);
-    const hasAudio = isAudio && Boolean(currentNode.metadata?.content);
     const isText = currentNode.type === CanvasNodeType.Text;
     const isConfig = currentNode.type === CanvasNodeType.Config;
-    const canOpenDialog = isText || hasImage || isVideo;
+    const canOpenDialog = isText || hasImage;
     const canRetry = currentNode.metadata?.status === "error";
     const quickImageToolIdSet = new Set(quickImageToolIds);
     const copyImagePrompt = (target: CanvasNodeData) => {
@@ -139,8 +135,8 @@ export function CanvasNodeHoverToolbar({
     ];
     const nodeToolbarTools: ToolbarTool[] = [
         ...(canRetry ? [{ id: "retry", title: "重新生成", label: "重试", icon: <RefreshCw className="size-4" />, onClick: () => onRetry(currentNode) }] : []),
-        ...(hasImage || hasVideo || hasAudio || isText ? [{ id: "saveAsset", title: "加入我的素材", label: "存素材", icon: <FolderPlus className="size-4" />, onClick: () => onSaveAsset(currentNode) }] : []),
-        ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: hasAudio ? "下载音频" : hasVideo ? "下载视频" : "下载图片", label: "下载", icon: <Download className="size-4" />, onClick: () => onDownload(currentNode) }] : []),
+        ...(hasImage || isText ? [{ id: "saveAsset", title: "加入我的素材", label: "存素材", icon: <FolderPlus className="size-4" />, onClick: () => onSaveAsset(currentNode) }] : []),
+        ...(hasImage ? [{ id: "download", title: "下载图片", label: "下载", icon: <Download className="size-4" />, onClick: () => onDownload(currentNode) }] : []),
         ...(canOpenDialog ? [{ id: "edit", title: "编辑", label: "编辑", icon: <MessageSquare className="size-4" />, onClick: () => onToggleDialog(currentNode) }] : []),
         ...(isText ? [{ id: "editText", title: "编辑文本", label: "编辑文字", icon: <Pencil className="size-4" />, onClick: () => onEditText(currentNode) }] : []),
         ...(isText ? [{ id: "generateImage", title: "用文本生图", label: "生图", icon: <ImageIcon className="size-4" />, onClick: () => onGenerateImage(currentNode) }] : []),
@@ -148,8 +144,6 @@ export function CanvasNodeHoverToolbar({
         ...(isText ? [{ id: "decreaseFont", title: "减小字号", label: "缩小", icon: <Minus className="size-4" />, onClick: () => onDecreaseFont(currentNode) }] : []),
         ...(isText ? [{ id: "increaseFont", title: "增大字号", label: "放大", icon: <Plus className="size-4" />, onClick: () => onIncreaseFont(currentNode) }] : []),
         ...(isImage && !hasImage ? [{ id: "uploadImage", title: "上传图片", label: "上传图片", icon: <Upload className="size-4" />, onClick: () => onUpload(currentNode) }] : []),
-        ...(isVideo ? [{ id: "uploadVideo", title: hasVideo ? "替换视频" : "上传视频", label: hasVideo ? "替换视频" : "上传视频", icon: <Video className="size-4" />, onClick: () => onUpload(currentNode) }] : []),
-        ...(isAudio ? [{ id: "uploadAudio", title: hasAudio ? "替换音频" : "上传音频", label: hasAudio ? "替换音频" : "上传音频", icon: <Music2 className="size-4" />, onClick: () => onUpload(currentNode) }] : []),
         ...(hasImage ? imageTools.map((tool) => ({ id: tool.id, title: tool.title, label: tool.label, icon: tool.icon, active: tool.active, onClick: tool.onClick })) : []),
     ];
     const toolbarTools = hasImage ? [...baseToolbarTools, ...nodeToolbarTools].filter((tool) => quickImageToolIdSet.has(tool.id as ImageQuickToolId)) : [...baseToolbarTools, ...nodeToolbarTools];
@@ -256,7 +250,7 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                     {view === "info" ? (
                         <div className="thin-scrollbar h-full space-y-3 overflow-auto pr-1">
                             <InfoRow label="ID" value={node.id} />
-                            <InfoRow label="类型" value={node.type === CanvasNodeType.Text ? "文本" : node.type === CanvasNodeType.Image ? "图片" : node.type === CanvasNodeType.Video ? "视频" : node.type === CanvasNodeType.Audio ? "音频" : "生成配置"} />
+                            <InfoRow label="类型" value={node.type === CanvasNodeType.Text ? "文本" : node.type === CanvasNodeType.Image ? "图片" : "生成配置"} />
                             <InfoRow label="尺寸" value={`${Math.round(node.width)} x ${Math.round(node.height)}`} />
                             <InfoRow label="位置" value={`${Math.round(node.position.x)}, ${Math.round(node.position.y)}`} />
                             <InfoRow label="状态" value={node.metadata?.status || "idle"} />

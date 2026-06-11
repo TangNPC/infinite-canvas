@@ -7,7 +7,6 @@ export type UserConfigPayload = {
     storageProvider?: Partial<UserStorageProvider>;
     canvasData?: unknown;
     imageHistory?: unknown;
-    videoHistory?: unknown;
     assetData?: unknown;
     syncCapabilities?: {
         userData?: boolean;
@@ -54,14 +53,6 @@ export async function fetchUserImageHistory<T>(token: string) {
 
 export async function syncUserImageHistory<T>(token: string, data: T) {
     return apiPost<T>("/api/v1/user-data/image-history", { data }, token);
-}
-
-export async function fetchUserVideoHistory<T>(token: string) {
-    return apiGet<T>("/api/v1/user-data/video-history", undefined, token);
-}
-
-export async function syncUserVideoHistory<T>(token: string, data: T) {
-    return apiPost<T>("/api/v1/user-data/video-history", { data }, token);
 }
 
 export async function fetchUserAssetData<T>(token: string) {

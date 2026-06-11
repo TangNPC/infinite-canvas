@@ -65,23 +65,22 @@ func TestNormalizeSettingsPublishesEnabledChannelModelsAndRepairsDefaults(t *tes
 	settings := normalizeSettings(model.Settings{
 		Public: model.PublicSetting{
 			ModelChannel: model.PublicModelChannelSetting{
-				AvailableModels:   []string{"grok-imagine-video", "disabled-model"},
-				DefaultModel:      "grok-imagine-video",
+				AvailableModels:   []string{"gpt-5.5", "disabled-model"},
+				DefaultModel:      "gpt-5.5",
 				DefaultTextModel:  "missing-text",
 				DefaultImageModel: "missing-image",
-				DefaultVideoModel: "missing-video",
 			},
 		},
 		Private: model.PrivateSetting{
 			Channels: []model.ModelChannel{
-				{Enabled: true, Models: []string{"gpt-5.5", "doubao-seedream-5.0-lite", "doubao-seedance-2.0-fast", "gpt-5.5"}},
+				{Enabled: true, Models: []string{"gpt-5.5", "doubao-seedream-5.0-lite", "gpt-5.5"}},
 				{Enabled: false, Models: []string{"disabled-model"}},
 			},
 		},
 	})
 
 	channel := settings.Public.ModelChannel
-	wantModels := []string{"gpt-5.5", "doubao-seedream-5.0-lite", "doubao-seedance-2.0-fast"}
+	wantModels := []string{"gpt-5.5", "doubao-seedream-5.0-lite"}
 	if !reflect.DeepEqual(channel.AvailableModels, wantModels) {
 		t.Fatalf("available models = %#v, want %#v", channel.AvailableModels, wantModels)
 	}
@@ -93,8 +92,5 @@ func TestNormalizeSettingsPublishesEnabledChannelModelsAndRepairsDefaults(t *tes
 	}
 	if channel.DefaultImageModel != "doubao-seedream-5.0-lite" {
 		t.Fatalf("default image model = %q, want seedream", channel.DefaultImageModel)
-	}
-	if channel.DefaultVideoModel != "doubao-seedance-2.0-fast" {
-		t.Fatalf("default video model = %q, want seedance", channel.DefaultVideoModel)
 	}
 }

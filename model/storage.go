@@ -22,7 +22,6 @@ type UserConfig struct {
 	StorageProvider string `json:"storageProvider" gorm:"type:text"`
 	CanvasData      string `json:"canvasData" gorm:"type:text"`
 	ImageHistory    string `json:"imageHistory" gorm:"type:text"`
-	VideoHistory    string `json:"videoHistory" gorm:"type:text"`
 	AssetData       string `json:"assetData" gorm:"type:text"`
 	CreatedAt       string `json:"createdAt"`
 	UpdatedAt       string `json:"updatedAt"`

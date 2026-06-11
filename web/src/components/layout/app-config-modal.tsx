@@ -5,15 +5,10 @@ import { useEffect, useState } from "react";
 import { ReloadOutlined } from "@ant-design/icons";
 
 import { ModelPicker } from "@/components/model-picker";
-import { AudioSettingsPanel } from "@/components/audio-settings-panel";
-import { VideoSettingsPanel } from "@/components/video-settings-panel";
-import { canvasThemes } from "@/lib/canvas-theme";
 import { fetchChannelModels, type AdminModelChannel } from "@/services/api/admin";
 import { fetchUserConfig, measureUserStorageProvider, syncUserModelConfig, syncUserStorageProvider } from "@/services/api/user-config";
 import { defaultUserStorageProvider, saveUserStorageProvider, USER_STORAGE_PROVIDER_KEY, type UserStorageProvider, clearStorageConfigCache as clearImageStorageCache } from "@/services/image-storage";
-import { clearStorageConfigCache as clearFileStorageCache } from "@/services/file-storage";
 import { normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type LocalModelChannel } from "@/stores/use-config-store";
-import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 export function AppConfigModal() {
@@ -34,7 +29,6 @@ export function AppConfigModal() {
     const allowCustomChannel = modelChannel?.allowCustomChannel === true;
     const effectiveMode = allowCustomChannel ? config.channelMode : "remote";
     const modelConfig = effectiveMode === "remote" ? effectiveConfig : config;
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [userStorage, setUserStorage] = useState<UserStorageProvider>(() => defaultUserStorageProvider());
     const [syncingModel, setSyncingModel] = useState(false);
     const [syncingStorage, setSyncingStorage] = useState(false);
@@ -102,7 +96,7 @@ export function AppConfigModal() {
         if (!allowCustomChannel && config.channelMode !== "remote") updateConfig("channelMode", "remote");
 
         const isLocalIncomplete = effectiveMode === "local" && (!config.baseUrl.trim() || !config.apiKey.trim());
-        const isModelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.videoModel.trim() || !modelConfig.textModel.trim() || !modelConfig.audioModel.trim();
+        const isModelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.textModel.trim();
 
         setSaving(true);
         try {
@@ -135,7 +129,6 @@ export function AppConfigModal() {
             }
             
             clearImageStorageCache();
-            clearFileStorageCache();
 
             if (token) {
                 const userConfig = await fetchUserConfig(token);
@@ -148,7 +141,7 @@ export function AppConfigModal() {
                         const confirmMigration = await new Promise<boolean>((resolve) => {
                             modal.confirm({
                                 title: "迁移本地资源到云端",
-                                content: "检测到您之前有在浏览器本地离线保存的图片和视频资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
+                                content: "检测到您之前有在浏览器本地离线保存的图片资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
                                 okText: "一键迁移",
                                 cancelText: "暂不迁移",
                                 onOk: () => resolve(true),
@@ -216,7 +209,6 @@ export function AppConfigModal() {
             await syncUserStorageProvider(token, userStorage);
             
             clearImageStorageCache();
-            clearFileStorageCache();
 
             const userConfig = await fetchUserConfig(token);
             const cloudSyncActive = userConfig.syncCapabilities?.userData === true && userConfig.syncCapabilities?.assets === true;
@@ -228,7 +220,7 @@ export function AppConfigModal() {
                     const confirmMigration = await new Promise<boolean>((resolve) => {
                         modal.confirm({
                             title: "迁移本地资源到云端",
-                            content: "检测到您之前有在浏览器本地离线保存的图片和视频资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
+                            content: "检测到您之前有在浏览器本地离线保存的图片资产。是否现在一键将它们安全地迁移到刚刚配置的云端存储中？这样您在其他设备上也能正常查看它们。",
                             okText: "一键迁移",
                             cancelText: "暂不迁移",
                             onOk: () => resolve(true),
@@ -306,9 +298,7 @@ export function AppConfigModal() {
             updateLocalChannels(nextChannels);
             const models = Array.from(new Set(nextChannels.flatMap((channel) => channel.models)));
             if (models.length && !models.includes(config.imageModel)) updateConfig("imageModel", models[0]);
-            if (models.length && !models.includes(config.videoModel)) updateConfig("videoModel", models[0]);
             if (models.length && !models.includes(config.textModel)) updateConfig("textModel", models[0]);
-            if (models.length && !models.includes(config.audioModel)) updateConfig("audioModel", models[0]);
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -322,9 +312,7 @@ export function AppConfigModal() {
         updateConfig("localChannels", normalized);
         updateConfig("models", Array.from(new Set(normalized.flatMap((channel) => channel.models))));
         if (!normalized.some((channel) => channel.id === config.imageChannelId)) updateConfig("imageChannelId", normalized[0]?.id || "");
-        if (!normalized.some((channel) => channel.id === config.videoChannelId)) updateConfig("videoChannelId", normalized[0]?.id || "");
         if (!normalized.some((channel) => channel.id === config.textChannelId)) updateConfig("textChannelId", normalized[0]?.id || "");
-        if (!normalized.some((channel) => channel.id === config.audioChannelId)) updateConfig("audioChannelId", normalized[0]?.id || "");
         updateConfig("baseUrl", normalized[0]?.baseUrl || config.baseUrl);
         updateConfig("apiKey", normalized[0]?.apiKey || config.apiKey);
     };
@@ -552,18 +540,12 @@ export function AppConfigModal() {
                             ) : null}
                         </div>
                     )}
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid gap-4 md:grid-cols-2">
                         <Form.Item label="默认生图模型" className="mb-4">
                             <ModelPicker config={modelConfig} value={modelConfig.imageModel} channelId={modelConfig.imageChannelId} onChange={(model, channelId) => { updateConfig("imageModel", model); if (channelId) updateConfig("imageChannelId", channelId); }} fullWidth />
                         </Form.Item>
-                        <Form.Item label="默认视频模型" className="mb-4">
-                            <ModelPicker config={modelConfig} value={modelConfig.videoModel} channelId={modelConfig.videoChannelId} onChange={(model, channelId) => { updateConfig("videoModel", model); if (channelId) updateConfig("videoChannelId", channelId); }} fullWidth />
-                        </Form.Item>
                         <Form.Item label="默认文本模型" className="mb-4">
                             <ModelPicker config={modelConfig} value={modelConfig.textModel} channelId={modelConfig.textChannelId} onChange={(model, channelId) => { updateConfig("textModel", model); if (channelId) updateConfig("textChannelId", channelId); }} fullWidth />
-                        </Form.Item>
-                        <Form.Item label="默认音频模型" className="mb-4">
-                            <ModelPicker config={modelConfig} value={modelConfig.audioModel} channelId={modelConfig.audioChannelId} onChange={(model, channelId) => { updateConfig("audioModel", model); if (channelId) updateConfig("audioChannelId", channelId); }} fullWidth />
                         </Form.Item>
                     </div>
                     <div className="grid gap-4 md:grid-cols-4">
@@ -601,14 +583,6 @@ export function AppConfigModal() {
                         <FeatureSwitch title="流式传输" description="开启后请求中追加 stream，支持读取中间图片事件并避免长时间无数据。" checked={config.streamImages} onChange={(checked) => updateConfig("streamImages", checked)} />
                         <FeatureSwitch title="返回 Base64 图片数据" description="开启后 Image API 请求会追加 response_format: b64_json。" checked={config.responseFormatB64Json} onChange={(checked) => updateConfig("responseFormatB64Json", checked)} />
                         <FeatureSwitch title="Codex CLI 兼容模式" description="开启后减少不兼容参数，并追加防提示词改写前缀。" checked={config.codexCli} onChange={(checked) => updateConfig("codexCli", checked)} />
-                    </div>
-                    <div className="mb-4 grid gap-4 lg:grid-cols-2">
-                        <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
-                            <VideoSettingsPanel config={{ ...modelConfig, model: modelConfig.videoModel }} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />
-                        </div>
-                        <div className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
-                            <AudioSettingsPanel config={{ ...modelConfig, model: modelConfig.audioModel }} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />
-                        </div>
                     </div>
                     {allowUserStorageProvider ? (
                         <div className="mb-4 rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-900/50">

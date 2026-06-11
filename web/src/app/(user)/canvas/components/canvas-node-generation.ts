@@ -1,25 +1,20 @@
 import type { ChatCompletionMessage } from "@/services/api/image";
 import type { ReferenceImage } from "@/types/image";
-import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../types";
 
 export type NodeGenerationContext = {
     prompt: string;
     referenceImages: ReferenceImage[];
-    referenceVideos: ReferenceVideo[];
-    referenceAudios: ReferenceAudio[];
     textCount: number;
     imageCount: number;
 };
 
 export type NodeGenerationInput = {
     nodeId: string;
-    type: "text" | "image" | "video" | "audio";
+    type: "text" | "image";
     title: string;
     text?: string;
     image?: ReferenceImage;
-    video?: ReferenceVideo;
-    audio?: ReferenceAudio;
 };
 
 export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
@@ -29,14 +24,10 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         .filter(Boolean)
         .join("\n\n");
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
-    const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
-    const referenceAudios = inputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
 
     return {
         prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
         referenceImages,
-        referenceVideos,
-        referenceAudios,
         textCount: inputs.filter((input) => input.type === "text").length,
         imageCount: referenceImages.length,
     };
@@ -46,10 +37,6 @@ export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[
     return getOrderedUpstreamNodes(nodeId, nodes, connections).flatMap((node): NodeGenerationInput[] => {
         const image = readReferenceImage(node);
         if (image) return [{ nodeId: node.id, type: "image" as const, title: node.title, image }];
-        const video = readReferenceVideo(node);
-        if (video) return [{ nodeId: node.id, type: "video" as const, title: node.title, video }];
-        const audio = readReferenceAudio(node);
-        if (audio) return [{ nodeId: node.id, type: "audio" as const, title: node.title, audio }];
         const text = readNodeTextInput(node);
         if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, text }];
         return [];
@@ -71,12 +58,9 @@ export function buildNodeChatMessages(context: NodeGenerationContext): ChatCompl
 
 export async function hydrateNodeGenerationContext(context: NodeGenerationContext) {
     const { imageToDataUrl } = await import("@/services/image-storage");
-    const { resolveMediaUrl } = await import("@/services/file-storage");
     return {
         ...context,
         referenceImages: await Promise.all(context.referenceImages.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) }))),
-        referenceVideos: await Promise.all(context.referenceVideos.map(async (video) => ({ ...video, url: await resolveMediaUrl(video.storageKey, video.url) }))),
-        referenceAudios: await Promise.all(context.referenceAudios.map(async (audio) => ({ ...audio, url: await resolveMediaUrl(audio.storageKey, audio.url) }))),
     };
 }
 
@@ -92,31 +76,6 @@ function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
         name: `${node.title || node.id}.png`,
         type: node.metadata.mimeType || "image/png",
         dataUrl: node.metadata.content,
-        storageKey: node.metadata.storageKey,
-    };
-}
-
-function readReferenceVideo(node: CanvasNodeData): ReferenceVideo | null {
-    if (node.type !== CanvasNodeType.Video || !node.metadata?.content) return null;
-    return {
-        id: node.id,
-        name: `${node.title || node.id}.mp4`,
-        type: node.metadata.mimeType || "video/mp4",
-        url: node.metadata.content,
-        storageKey: node.metadata.storageKey,
-        bytes: node.metadata.bytes,
-        width: Math.round(node.metadata.naturalWidth || node.width),
-        height: Math.round(node.metadata.naturalHeight || node.height),
-    };
-}
-
-function readReferenceAudio(node: CanvasNodeData): ReferenceAudio | null {
-    if (node.type !== CanvasNodeType.Audio || !node.metadata?.content) return null;
-    return {
-        id: node.id,
-        name: `${node.title || node.id}.mp3`,
-        type: node.metadata.mimeType || "audio/mpeg",
-        url: node.metadata.content,
         storageKey: node.metadata.storageKey,
     };
 }
@@ -148,8 +107,8 @@ function getOrderedUpstreamNodes(nodeId: string, nodes: CanvasNodeData[], connec
         if (visited.has(directNode.id)) continue;
         visited.add(directNode.id);
 
-        if (directNode.type === CanvasNodeType.Image || directNode.type === CanvasNodeType.Video || directNode.type === CanvasNodeType.Audio) {
-            // 直接上游是媒体资源，保留作为参考输入，并在本分支立即截止溯源
+        if (directNode.type === CanvasNodeType.Image) {
+            // 直接上游是图片资源，保留作为参考输入，并在本分支立即截止溯源
             finalNodes.push(directNode);
         } else if (directNode.type === CanvasNodeType.Text) {
             // 直接上游是文本，保留作为提示词输入

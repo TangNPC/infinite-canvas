@@ -135,7 +135,7 @@ export type AdminPromptQuery = {
 export type AdminAsset = {
     id: string;
     title: string;
-    type: "text" | "image" | "video";
+    type: "text" | "image";
     coverUrl: string;
     tags: string[];
     category: string;
@@ -207,12 +207,10 @@ export type AdminPublicModelChannelSettings = {
     channels: AdminPublicModelChannelInfo[];
     defaultModel: string;
     defaultImageModel: string;
-    defaultVideoModel: string;
     defaultTextModel: string;
     systemPrompt: string;
     systemPrompts: {
         image: string;
-        video: string;
         text: string;
         workflow: string;
         workflowAgent: string;
