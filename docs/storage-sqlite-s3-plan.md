@@ -5,7 +5,7 @@
 在保留现有浏览器本地 IndexedDB 存储的基础上，新增一套服务端存储模式：
 
 - SQLite 保存画布、生成历史、工作流、分类、素材等元数据。
-- S3 兼容对象存储保存图片和视频文件，优先支持 Cloudflare R2。
+- S3 兼容对象存储保存图片文件，优先支持 Cloudflare R2。
 - 管理员后台可切换存储模式：本地 IndexedDB、服务端 SQLite + S3/R2、混合模式。
 - 用户可配置自己的 S3 兼容存储，支持多个存储桶配置并轮询写入。
 
@@ -16,9 +16,9 @@
 - `storage_objects` 表保存已上传文件索引。
 - 管理员 S3/R2 配置保存在 `settings.private.storage.providers`，暂未拆出独立 `storage_providers` 表。
 - 用户自定义 S3/R2 配置保存在 `user_configs.storage_provider`，由前端配置弹窗手动同步到账号。
-- 画布数据保存在 `user_configs.canvas_data` 快照，生图历史保存在 `user_configs.image_history` 快照，视频历史保存在 `user_configs.video_history` 快照。
+- 画布数据保存在 `user_configs.canvas_data` 快照，生图历史保存在 `user_configs.image_history` 快照。
 - 工作流模板保存在 `creative_workflows` 表，支持个人/公开范围。
-- 删除图片或已同步到对象存储的视频时会删除对象存储文件和 `storage_objects` 记录；素材或生成结果作为参考图使用时不会重复上传。
+- 删除图片时会删除对象存储文件和 `storage_objects` 记录；素材或生成结果作为参考图使用时不会重复上传。
 
 后续如果需要多人高并发、精细审计或增量同步，再按下方规划拆分更多业务表。
 
