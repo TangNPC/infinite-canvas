@@ -24,6 +24,9 @@ func BuildWechatPayURL(order model.MembershipOrder) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(cfg.NotifyURL) == "" {
+		return "", safeMessageError{message: "微信支付需配置异步通知地址"}
+	}
 	svc := native.NativeApiService{Client: client}
 	expireTime := time.Now().Add(30 * time.Minute)
 	resp, _, err := svc.Prepay(context.Background(), native.PrepayRequest{
@@ -66,9 +69,16 @@ func VerifyWechatNotify(r *http.Request) (string, string, error) {
 	visitor := downloader.MgrInstance().GetCertificateVisitor(cfg.MchID)
 	handler := notify.NewNotifyHandler(cfg.APIV3Key, verifiers.NewSHA256WithRSAVerifier(visitor))
 	transaction := struct {
+		AppID         string `json:"appid"`
+		MchID         string `json:"mchid"`
 		OutTradeNo    string `json:"out_trade_no"`
 		TransactionID string `json:"transaction_id"`
+		TradeType     string `json:"trade_type"`
 		TradeState    string `json:"trade_state"`
+		Amount        *struct {
+			Total    int64  `json:"total"`
+			Currency string `json:"currency"`
+		} `json:"amount"`
 	}{}
 	if _, err := handler.ParseNotifyRequest(context.Background(), r, &transaction); err != nil {
 		return "", "", safeMessageError{message: "微信回调验签失败：" + err.Error()}
@@ -78,6 +88,28 @@ func VerifyWechatNotify(r *http.Request) (string, string, error) {
 	}
 	if strings.TrimSpace(transaction.OutTradeNo) == "" {
 		return "", "", safeMessageError{message: "微信回调缺少订单号"}
+	}
+	if transaction.AppID != cfg.AppID || transaction.MchID != cfg.MchID {
+		return "", "", safeMessageError{message: "微信回调商户信息不匹配"}
+	}
+	if transaction.TradeType != "" && transaction.TradeType != "NATIVE" {
+		return "", "", safeMessageError{message: "微信回调交易类型不匹配"}
+	}
+	order, ok, err := repository.GetMembershipOrder(transaction.OutTradeNo)
+	if err != nil {
+		return "", "", err
+	}
+	if !ok {
+		return "", "", safeMessageError{message: "订单不存在"}
+	}
+	if order.PaymentProvider != model.PaymentProviderWechat {
+		return "", "", safeMessageError{message: "订单支付方式不匹配"}
+	}
+	if transaction.Amount == nil || transaction.Amount.Total != int64(order.Amount) {
+		return "", "", safeMessageError{message: "微信回调金额不匹配"}
+	}
+	if transaction.Amount.Currency != "" && transaction.Amount.Currency != "CNY" {
+		return "", "", safeMessageError{message: "微信回调币种不匹配"}
 	}
 	return transaction.OutTradeNo, transaction.TransactionID, nil
 }

@@ -14,11 +14,11 @@ type MembershipPlan struct {
 	Name           string          `json:"name"`
 	Level          MembershipLevel `json:"level"`
 	Description    string          `json:"description"`
-	Price          int             `json:"price"`               // 价格，单位：分
-	DurationDays   int             `json:"durationDays"`        // 会员有效天数
-	CreditsGranted int             `json:"creditsGranted"`      // 赠送算力点数量
-	Unlimited      bool            `json:"unlimited"`           // 会员期内是否不限算力点扣费
-	PriorityQueue  bool            `json:"priorityQueue"`       // 是否优先队列
+	Price          int             `json:"price"`                     // 价格，单位：分
+	DurationDays   int             `json:"durationDays"`              // 会员有效天数
+	CreditsGranted int             `json:"creditsGranted"`            // 赠送算力点数量
+	Unlimited      bool            `json:"unlimited"`                 // 会员期内是否不限算力点扣费
+	PriorityQueue  bool            `json:"priorityQueue"`             // 是否优先队列
 	Features       string          `json:"features" gorm:"type:text"` // JSON 文本，记录解锁的功能 key
 	Enabled        bool            `json:"enabled"`
 	Sort           int             `json:"sort"`
@@ -59,6 +59,7 @@ type MembershipOrder struct {
 	PaymentProvider PaymentProvider       `json:"paymentProvider"`
 	PaymentID       string                `json:"paymentId"`
 	PayURL          string                `json:"payUrl"`
+	PayMode         string                `json:"payMode"`
 	PaidAt          string                `json:"paidAt"`
 	ExpiresAt       string                `json:"expiresAt"`
 	CreatedAt       string                `json:"createdAt"`

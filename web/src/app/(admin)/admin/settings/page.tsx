@@ -902,10 +902,10 @@ export default function AdminSettingsPage() {
                                         </Row>
                                     </Flex>
                                 </Card>
-                                <Card size="small" title="支付宝直连">
+                                <Card size="small" title="支付宝扫码支付">
                                     <Flex vertical gap={14}>
                                         <Typography.Text type="secondary">
-                                            支付宝官方接口直连，需要 AppID、应用私钥、支付宝公钥（来自支付宝开放平台）。当前为占位实现：保存的配置可被前端识别，但下单接口尚未对接官方 SDK，会回退到 ZPay 或返回提示信息。
+                                            支付宝官方当面付扫码支付，需要 AppID、应用私钥、支付宝公钥（来自支付宝开放平台）和公网异步通知地址。下单由服务端生成收款二维码内容，前端展示二维码，权益发放以异步通知验签结果为准。
                                         </Typography.Text>
                                         <Row gutter={16}>
                                             <Col xs={24} md={6}>
@@ -925,7 +925,7 @@ export default function AdminSettingsPage() {
                                             </Col>
                                             <Col xs={24} md={12}>
                                                 <Form.Item name={["private", "payment", "alipay", "privateKey"]} label="应用私钥（RSA2）">
-                                                    <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} placeholder="留空则沿用已保存的密钥；建议填入 PKCS8 私钥" />
+                                                    <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} placeholder="留空则沿用已保存的密钥；直接粘贴开放平台应用私钥" />
                                                 </Form.Item>
                                             </Col>
                                             <Col xs={24} md={12}>
@@ -944,7 +944,7 @@ export default function AdminSettingsPage() {
                                                 </Form.Item>
                                             </Col>
                                             <Col xs={24} md={8}>
-                                                <Form.Item name={["private", "payment", "alipay", "returnUrl"]} label="同步跳转地址（return_url）">
+                                                <Form.Item name={["private", "payment", "alipay", "returnUrl"]} label="同步跳转地址（扫码支付可留空）">
                                                     <Input placeholder="https://your-domain/api/payments/alipay/return" />
                                                 </Form.Item>
                                             </Col>

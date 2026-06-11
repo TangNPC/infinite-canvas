@@ -122,7 +122,7 @@ export default function MembershipPage() {
                 return;
             }
             setPurchasing(null);
-            if (order.payUrl && order.payUrl.startsWith("weixin://")) {
+            if (order.payMode === "qrcode" || order.payUrl.startsWith("weixin://")) {
                 setWechatOrder(order);
                 return;
             }

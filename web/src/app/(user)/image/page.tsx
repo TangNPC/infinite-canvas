@@ -1125,15 +1125,15 @@ function WorkbenchPanel({
 
     if (layout === "bottom") {
         return (
-            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-5 sm:bottom-7 sm:px-10 lg:px-16">
-                <div className="pointer-events-auto w-full max-w-7xl rounded-[24px] bg-white/65 p-4 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
-                    <div className="flex flex-col gap-3">
+            <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4 sm:bottom-7 sm:px-8 lg:px-10">
+                <div className="pointer-events-auto w-full max-w-[1040px] rounded-[20px] bg-white/65 p-3 shadow-[0_32px_100px_rgba(15,23,42,.22),0_10px_34px_rgba(15,23,42,.10)] ring-1 ring-white/50 backdrop-blur-2xl dark:bg-stone-950/60 dark:ring-white/10 dark:shadow-[0_34px_110px_rgba(0,0,0,.58)]">
+                    <div className="flex flex-col gap-2.5">
                         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                             <Input.TextArea
                                 value={prompt}
                                 onChange={(event) => onPromptChange(event.target.value)}
                                 placeholder="描述你想生成的图片，可输入 @ 来指定参考图..."
-                                autoSize={{ minRows: 2, maxRows: 4 }}
+                                autoSize={{ minRows: 1, maxRows: 3 }}
                                 className="rounded-2xl"
                                 onPressEnter={(event) => {
                                     if (!event.shiftKey && canGenerate) onGenerate();
@@ -1155,9 +1155,9 @@ function WorkbenchPanel({
                                 </Button>
                             </div>
                         </div>
-                        <div className={`gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(148px,170px)] lg:items-end ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
-                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(170px,1.25fr)_minmax(120px,.9fr)_repeat(4,minmax(88px,.72fr))_minmax(82px,.62fr)_minmax(82px,.62fr)_minmax(82px,.62fr)]">
-                                <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+                        <div className={`gap-2 lg:grid-cols-[minmax(0,1fr)_132px] lg:items-end ${bottomSettingsCollapsed ? "hidden lg:grid" : "grid"}`}>
+                            <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[minmax(122px,1.25fr)_74px_minmax(80px,.8fr)_minmax(72px,.7fr)_minmax(72px,.7fr)_64px_minmax(70px,.7fr)_60px_60px]">
+                                <label className="grid gap-1 text-[11px] leading-none text-stone-500 dark:text-stone-400">
                                     模型
                                     <ModelPicker
                                         config={config}
@@ -1167,22 +1167,22 @@ function WorkbenchPanel({
                                             updateConfig("imageModel", value);
                                             if (channelId) updateConfig("imageChannelId", channelId);
                                         }}
-                                        className="canvas-compact-control !h-11 !rounded-xl"
+                                        className="canvas-compact-control !h-10 !rounded-xl"
                                         onMissingConfig={() => openConfigDialog(false)}
                                         fullWidth
                                     />
                                 </label>
-                                <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+                                <label className="grid min-w-0 gap-1 text-[11px] leading-none text-stone-500 dark:text-stone-400">
                                     接口模式
-                                    <div className="flex h-11 items-center rounded-xl border border-stone-200 bg-background px-2.5 dark:border-stone-800">
+                                    <div className="flex h-10 min-w-0 items-center overflow-hidden rounded-xl border border-stone-200 bg-background p-1 dark:border-stone-800">
                                         <Segmented
                                             size="small"
-                                            className="canvas-config-mode !rounded-md !p-0.5 w-full"
+                                            className="canvas-config-mode !w-full !min-w-0 !rounded-md !p-0 !text-xs [&_.ant-segmented-item]:!min-w-0 [&_.ant-segmented-item-label]:!min-w-0 [&_.ant-segmented-item-label]:!px-1"
                                             value={config.apiMode}
                                             onChange={(value) => updateConfig("apiMode", value as "images" | "responses")}
                                             options={[
-                                                { value: "images", label: "images" },
-                                                { value: "responses", label: "responses" },
+                                                { value: "images", label: "img" },
+                                                { value: "responses", label: "resp" },
                                             ]}
                                         />
                                     </div>
@@ -1197,7 +1197,7 @@ function WorkbenchPanel({
                             </div>
                             <div className="grid gap-2 sm:grid-cols-[auto_minmax(140px,1fr)] lg:grid-cols-1">
                                 <ReferenceQuickActions references={references} onUploadReferences={onUploadReferences} />
-                                <Button type="primary" className="hidden h-11 rounded-xl font-medium lg:inline-flex lg:w-full lg:justify-center" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
+                                <Button type="primary" className="hidden h-10 rounded-xl font-medium lg:inline-flex lg:w-full lg:justify-center" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
                                     {pendingCount ? `${pendingCount} 生成中` : "开始创作"}
                                 </Button>
                             </div>
@@ -1342,9 +1342,9 @@ function ReferenceStrip({ references, compact = false, className = "", onRemoveR
 
 function ReferenceQuickActions({ references, onUploadReferences }: { references: ReferenceImage[]; onUploadReferences: () => void }) {
     return (
-        <div className="flex h-11 items-center gap-1 rounded-xl border border-stone-200 bg-background px-2 dark:border-stone-800">
-            {references[0] ? <img src={references[0].dataUrl || undefined} alt={references[0].name} className="size-7 rounded object-cover" /> : null}
-            {references.length ? <span className="min-w-7 text-xs text-stone-500">{references.length} 张</span> : null}
+        <div className="flex h-10 items-center gap-1 rounded-xl border border-stone-200 bg-background px-2 dark:border-stone-800">
+            {references[0] ? <img src={references[0].dataUrl || undefined} alt={references[0].name} className="size-6 rounded object-cover" /> : null}
+            {references.length ? <span className="min-w-6 text-xs text-stone-500">{references.length} 张</span> : null}
             <Button size="small" type="text" icon={<Upload className="size-3.5" />} onClick={onUploadReferences} />
         </div>
     );
@@ -1352,9 +1352,9 @@ function ReferenceQuickActions({ references, onUploadReferences }: { references:
 
 function QuickSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
     return (
-        <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+        <label className="grid gap-1 text-[11px] leading-none text-stone-500 dark:text-stone-400">
             {label}
-            <select className="h-11 min-w-0 rounded-xl border border-stone-200 bg-background px-3 text-sm text-stone-900 outline-none dark:border-stone-800 dark:text-stone-100" value={value} onChange={(event) => onChange(event.target.value)}>
+            <select className="h-10 min-w-0 rounded-xl border border-stone-200 bg-background px-2 text-xs text-stone-900 outline-none dark:border-stone-800 dark:text-stone-100" value={value} onChange={(event) => onChange(event.target.value)}>
                 {options.map((item) => (
                     <option key={item.value} value={item.value}>
                         {item.label}
@@ -1367,10 +1367,10 @@ function QuickSelect({ label, value, options, onChange }: { label: string; value
 
 function QuickNumber({ label, value, min, max, disabled, onChange }: { label: string; value: string; min: number; max: number; disabled?: boolean; onChange: (value: string) => void }) {
     return (
-        <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+        <label className="grid gap-1 text-[11px] leading-none text-stone-500 dark:text-stone-400">
             {label}
             <input
-                className="h-11 min-w-0 rounded-xl border border-stone-200 bg-background px-3 text-sm text-stone-900 outline-none disabled:opacity-50 dark:border-stone-800 dark:text-stone-100"
+                className="h-10 min-w-0 rounded-xl border border-stone-200 bg-background px-2 text-xs text-stone-900 outline-none disabled:opacity-50 dark:border-stone-800 dark:text-stone-100"
                 type="number"
                 min={min}
                 max={max}

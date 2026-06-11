@@ -7,6 +7,7 @@ import (
 
 	"github.com/basketikun/infinite-canvas/model"
 	"github.com/basketikun/infinite-canvas/repository"
+	"github.com/google/uuid"
 )
 
 // ListMembershipPlans 返回套餐分页列表。enabledOnly 用于面向用户的展示。
@@ -77,7 +78,7 @@ func CreateMembershipOrder(userID string, planID string, provider model.PaymentP
 	}
 	provider = normalizePaymentProvider(provider, settings.Membership.PaymentMethods)
 	order := model.MembershipOrder{
-		ID:              newID("order"),
+		ID:              newMembershipOrderID(),
 		UserID:          userID,
 		PlanID:          plan.ID,
 		PlanName:        plan.Name,
@@ -88,11 +89,12 @@ func CreateMembershipOrder(userID string, planID string, provider model.PaymentP
 		CreatedAt:       now(),
 		UpdatedAt:       now(),
 	}
-	payURL, err := buildOrderPayURL(order)
+	payment, err := buildOrderPayment(order)
 	if err != nil {
 		return order, err
 	}
-	order.PayURL = payURL
+	order.PayURL = payment.URL
+	order.PayMode = payment.Mode
 	return repository.SaveMembershipOrder(order)
 }
 
@@ -111,43 +113,59 @@ func RefreshOrderPayURL(orderID string, userID string) (model.MembershipOrder, e
 	if order.Status != model.MembershipOrderStatusPending {
 		return order, safeMessageError{message: "订单状态不允许支付"}
 	}
-	payURL, err := buildOrderPayURL(order)
+	payment, err := buildOrderPayment(order)
 	if err != nil {
 		return order, err
 	}
-	order.PayURL = payURL
+	order.PayURL = payment.URL
+	order.PayMode = payment.Mode
 	order.UpdatedAt = now()
 	return repository.SaveMembershipOrder(order)
 }
 
-func buildOrderPayURL(order model.MembershipOrder) (string, error) {
+type orderPayment struct {
+	URL  string
+	Mode string
+}
+
+func newMembershipOrderID() string {
+	raw := strings.ReplaceAll(uuid.NewString(), "-", "")
+	return "order_" + raw[:26]
+}
+
+func buildOrderPayment(order model.MembershipOrder) (orderPayment, error) {
 	if order.PaymentProvider == model.PaymentProviderMock {
-		return "/payment/mock?orderId=" + order.ID, nil
+		return orderPayment{URL: "/payment/mock?orderId=" + order.ID, Mode: "redirect"}, nil
 	}
 	settings, err := repository.GetSettings()
 	if err != nil {
-		return "", err
+		return orderPayment{}, err
 	}
 	payment := normalizeSettings(settings).Private.Payment
 	switch order.PaymentProvider {
 	case model.PaymentProviderAlipay:
 		if payment.Alipay.Enabled {
-			return BuildAlipayPayURL(order)
+			qrCode, err := BuildAlipayPayQRCode(order)
+			return orderPayment{URL: qrCode, Mode: "qrcode"}, err
 		}
 		if payment.ZPay.Enabled {
-			return BuildZPayPayURL(order)
+			payURL, err := BuildZPayPayURL(order)
+			return orderPayment{URL: payURL, Mode: "redirect"}, err
 		}
-		return "", safeMessageError{message: "支付宝支付未开启，请联系管理员"}
+		return orderPayment{}, safeMessageError{message: "支付宝支付未开启，请联系管理员"}
 	case model.PaymentProviderWechat:
 		if payment.Wechat.Enabled {
-			return BuildWechatPayURL(order)
+			payURL, err := BuildWechatPayURL(order)
+			return orderPayment{URL: payURL, Mode: "qrcode"}, err
 		}
 		if payment.ZPay.Enabled {
-			return BuildZPayPayURL(order)
+			payURL, err := BuildZPayPayURL(order)
+			return orderPayment{URL: payURL, Mode: "redirect"}, err
 		}
-		return "", safeMessageError{message: "微信支付未开启，请联系管理员"}
+		return orderPayment{}, safeMessageError{message: "微信支付未开启，请联系管理员"}
 	}
-	return BuildZPayPayURL(order)
+	payURL, err := BuildZPayPayURL(order)
+	return orderPayment{URL: payURL, Mode: "redirect"}, err
 }
 
 // MarkOrderPaid 标记订单已支付，并发放会员权益。

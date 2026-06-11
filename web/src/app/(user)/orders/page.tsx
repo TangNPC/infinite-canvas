@@ -72,6 +72,7 @@ function OrdersContent() {
 
     useEffect(() => {
         if (payStatus === "success") message.success("支付完成，会员权益已发放");
+        else if (payStatus === "pending") message.info("支付结果确认中，请稍后刷新订单状态");
         else if (payStatus === "fail") message.error("支付校验失败，请刷新订单或联系客服");
     }, [payStatus, message]);
 
@@ -116,7 +117,7 @@ function OrdersContent() {
                 message.error("未获取到支付链接");
                 return;
             }
-            if (url.startsWith("weixin://")) {
+            if (fresh.payMode === "qrcode" || url.startsWith("weixin://")) {
                 setWechatOrder(fresh);
                 return;
             }

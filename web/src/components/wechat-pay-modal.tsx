@@ -12,8 +12,18 @@ type Props = {
     onPaid?: () => void;
 };
 
-// WechatPayModal 微信 Native 扫码弹窗，自动轮询订单状态。
-// 当后端 payUrl 是 weixin:// 开头时使用本组件。
+const providerTitle: Record<string, string> = {
+    wechat: "微信扫码支付",
+    alipay: "支付宝扫码支付",
+};
+
+const providerHint: Record<string, string> = {
+    wechat: "请使用微信扫一扫完成支付",
+    alipay: "请使用支付宝扫一扫完成支付",
+};
+
+// WechatPayModal 二维码扫码支付弹窗，自动轮询订单状态。
+// 保留组件名以减少调用处改动，当前用于微信 Native 和支付宝当面付扫码。
 export function WechatPayModal({ order, onClose, onPaid }: Props) {
     const token = useUserStore((state) => state.token);
     const setSession = useUserStore((state) => state.setSession);
@@ -55,8 +65,11 @@ export function WechatPayModal({ order, onClose, onPaid }: Props) {
         };
     }, [order, token, setSession, onPaid, onClose]);
 
+    const title = order ? providerTitle[order.paymentProvider] || "扫码支付" : "扫码支付";
+    const hint = order ? providerHint[order.paymentProvider] || "请扫码完成支付" : "请扫码完成支付";
+
     return (
-        <Modal open={Boolean(order)} onCancel={onClose} footer={null} title="微信扫码支付" destroyOnHidden>
+        <Modal open={Boolean(order)} onCancel={onClose} footer={null} title={title} destroyOnHidden>
             {order ? (
                 <div className="flex flex-col items-center gap-4 py-4">
                     {status === "paid" ? (
@@ -69,7 +82,7 @@ export function WechatPayModal({ order, onClose, onPaid }: Props) {
                     ) : (
                         <>
                             <QRCode value={order.payUrl || " "} size={220} />
-                            <Typography.Text>请使用微信扫码支付</Typography.Text>
+                            <Typography.Text>{hint}</Typography.Text>
                             <Typography.Text type="secondary" className="text-xs">
                                 金额 ¥ {(order.amount / 100).toFixed(2)} · 订单 {order.id}
                             </Typography.Text>

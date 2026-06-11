@@ -180,14 +180,17 @@ func AlipayNotify(w http.ResponseWriter, r *http.Request) {
 
 // AlipayReturn 支付宝同步跳转，校验后跳回前端订单页。
 func AlipayReturn(w http.ResponseWriter, r *http.Request) {
-	order, err := service.VerifyAlipayNotify(r)
-	status := "success"
+	order, paymentID, paid, err := service.ConfirmAlipayReturn(r)
+	status := "pending"
 	orderID := ""
 	if err != nil {
 		status = "fail"
 	} else {
 		orderID = order.ID
-		_, _ = service.MarkOrderPaid(order.ID, r.Form.Get("trade_no"))
+		if paid {
+			status = "success"
+			_, _ = service.MarkOrderPaid(order.ID, paymentID)
+		}
 	}
 	http.Redirect(w, r, "/orders?focus="+orderID+"&payStatus="+status, http.StatusFound)
 }

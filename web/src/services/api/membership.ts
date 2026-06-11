@@ -38,6 +38,7 @@ export type MembershipOrder = {
     paymentProvider: PaymentProvider;
     paymentId: string;
     payUrl: string;
+    payMode: "qrcode" | "redirect" | "";
     paidAt: string;
     expiresAt: string;
     createdAt: string;

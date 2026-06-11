@@ -228,7 +228,8 @@ description: 当前后端主要数据表与字段说明
 | `status` | string | `pending`、`paid`、`cancelled` |
 | `payment_provider` | string | `wechat`、`alipay`、`mock` |
 | `payment_id` | string | 第三方支付流水或平台订单号 |
-| `pay_url` | string | 支付跳转 URL 或微信 code_url |
+| `pay_url` | string | 支付跳转 URL、微信 code_url 或支付宝收款二维码内容 |
+| `pay_mode` | string | 支付呈现方式，`qrcode` 或 `redirect` |
 | `paid_at` | string | 支付时间 |
 | `expires_at` | string | 订单过期时间 |
 | `created_at` | string | 创建时间 |
