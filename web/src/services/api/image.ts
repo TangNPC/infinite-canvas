@@ -165,6 +165,12 @@ function parseImagePayload(payload: ImageApiResponse, mime: string): GeneratedIm
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new ImageRequestError(payload.msg || "请求失败", payload);
     }
+    if (payload.error?.message) {
+        throw new ImageRequestError(payload.error.message, payload);
+    }
+    if (payload.msg && !payload.data?.length) {
+        throw new ImageRequestError(payload.msg, payload);
+    }
     const images =
         payload.data
             ?.map((item) => resolveImageDataUrl(item, mime))
@@ -246,6 +252,12 @@ function collectResponsesImageSources(item: Record<string, unknown>) {
 function parseResponsesPayload(payload: ResponsesApiResponse, mime: string): GeneratedImage[] {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new ImageRequestError(payload.msg || "请求失败", payload);
+    }
+    if (payload.error?.message) {
+        throw new ImageRequestError(payload.error.message, payload);
+    }
+    if (payload.msg && !payload.output?.length) {
+        throw new ImageRequestError(payload.msg, payload);
     }
     const images =
         payload.output

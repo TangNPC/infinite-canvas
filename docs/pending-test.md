@@ -19,6 +19,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - `/responses` 流式生图需要确认 HTTP 200 但流内出现 `event:error`、`response.failed` 或没有最终图片时会返还算力点，AI 调用日志扣点显示为 0，并按失败重试配置继续重试。
 - Responses API 流式返回需要确认能从最终 completed 事件、`response.output`、base64、data URL 或 HTTP 图片 URL 中正确识别图片，不再把已返回图片的 SSE 文本误判为失败。
 - 云雾等 `/images/generations`、`/images/edits` 渠道需要确认返回体包含 `b64_json` 或图片 URL 时，即使 JSON 包装被中转站截断或 HTTP 状态非 2xx，前端仍能优先提取图片结果。
+- 云雾等耗时超过 60 秒的图片请求需要在服务器 openresty/Nginx 部署环境下复测，确认前端生成卡片不再保存或展示 `504 Gateway Time-out` HTML，而是等待后端最终图片结果。
 - univibe 等 `/responses` 渠道需要确认单行 SSE、`response.image_generation_call.partial_image` 和 `partial_image_b64` 能被识别为图片结果；后端 AI 日志和算力点结算不再把这类已返回图片的调用记为失败。
 - 上游返回 HTTP 图片 URL 的渠道需要确认生成卡片可以直接展示结果，不再错误包成 base64。
 - 算力点日志需要确认 AI 消费和失败返还备注显示模型与渠道信息；失败请求应出现等额消费和返还，成功请求只保留消费。

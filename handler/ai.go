@@ -113,7 +113,13 @@ type aiResponseCopyResult struct {
 	ErrorMessage string
 }
 
+type aiClientKeepalive struct {
+	stop chan struct{}
+	done chan struct{}
+}
+
 func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.ModelChannel, logContext aiLogContext, onFailure func()) {
+	keepalive := startAIClientKeepalive(w, logContext.ExpectImage)
 	response, err := service.HTTPClientForChannel(channel).Do(request)
 	if err != nil {
 		log.Printf("AI proxy request failed: url=%s err=%v", request.URL.String(), err)
@@ -121,7 +127,7 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 			onFailure()
 		}
 		saveAIProxyLog(logContext, 0, "", err.Error(), 0)
-		FailWithStatus(w, http.StatusBadGateway, readUpstreamAIErrorMessage([]byte(err.Error()), http.StatusBadGateway))
+		writeAIProxyError(w, keepalive, http.StatusBadGateway, readUpstreamAIErrorMessage([]byte(err.Error()), http.StatusBadGateway))
 		return
 	}
 	defer response.Body.Close()
@@ -133,20 +139,22 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 			onFailure()
 		}
 		saveAIProxyLog(logContext, response.StatusCode, string(payload), strings.TrimSpace(string(payload)), 0)
-		FailWithStatus(w, response.StatusCode, readUpstreamAIErrorMessage(payload, response.StatusCode))
+		writeAIProxyError(w, keepalive, response.StatusCode, readUpstreamAIErrorMessage(payload, response.StatusCode))
 		return
 	}
 
-	for key, values := range response.Header {
-		if strings.EqualFold(key, "Content-Length") {
-			continue
+	if !keepalive.Enabled() {
+		for key, values := range response.Header {
+			if strings.EqualFold(key, "Content-Length") {
+				continue
+			}
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
 		}
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
+		w.WriteHeader(response.StatusCode)
 	}
-	w.WriteHeader(response.StatusCode)
-	result := copyAIResponseBody(w, response.Body, logContext.ExpectImage)
+	result := copyAIResponseBody(w, response.Body, logContext.ExpectImage, keepalive)
 	status := response.StatusCode
 	errorMessage := ""
 	chargedCredits := logContext.Credits
@@ -167,7 +175,60 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, channel model.
 	saveAIProxyLog(logContext, status, result.Body, errorMessage, chargedCredits)
 }
 
-func copyAIResponseBody(w http.ResponseWriter, body io.Reader, scanImageResult bool) aiResponseCopyResult {
+func startAIClientKeepalive(w http.ResponseWriter, enabled bool) *aiClientKeepalive {
+	keepalive := &aiClientKeepalive{}
+	flusher, ok := w.(http.Flusher)
+	if !enabled || !ok {
+		return keepalive
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	_, _ = w.Write([]byte(" "))
+	flusher.Flush()
+	keepalive.stop = make(chan struct{})
+	keepalive.done = make(chan struct{})
+	go func() {
+		defer close(keepalive.done)
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_, _ = w.Write([]byte(" "))
+				flusher.Flush()
+			case <-keepalive.stop:
+				return
+			}
+		}
+	}()
+	return keepalive
+}
+
+func (keepalive *aiClientKeepalive) Enabled() bool {
+	return keepalive != nil && keepalive.stop != nil
+}
+
+func (keepalive *aiClientKeepalive) Stop() {
+	if !keepalive.Enabled() {
+		return
+	}
+	close(keepalive.stop)
+	<-keepalive.done
+	keepalive.stop = nil
+}
+
+func writeAIProxyError(w http.ResponseWriter, keepalive *aiClientKeepalive, status int, message string) {
+	if keepalive.Enabled() {
+		keepalive.Stop()
+		encoded, _ := json.Marshal(map[string]any{"error": map[string]any{"message": message, "code": fmt.Sprintf("%d", status)}})
+		_, _ = w.Write(encoded)
+		return
+	}
+	FailWithStatus(w, status, message)
+}
+
+func copyAIResponseBody(w http.ResponseWriter, body io.Reader, scanImageResult bool, keepalive *aiClientKeepalive) aiResponseCopyResult {
 	flusher, canFlush := w.(http.Flusher)
 	buffer := make([]byte, 32*1024)
 	var logBuffer strings.Builder
@@ -176,6 +237,7 @@ func copyAIResponseBody(w http.ResponseWriter, body io.Reader, scanImageResult b
 	for {
 		n, err := body.Read(buffer)
 		if n > 0 {
+			keepalive.Stop()
 			if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
 				result.Body = logBuffer.String()
 				return result
@@ -193,6 +255,7 @@ func copyAIResponseBody(w http.ResponseWriter, body io.Reader, scanImageResult b
 			}
 		}
 		if err != nil {
+			keepalive.Stop()
 			result.Body = logBuffer.String()
 			return result
 		}
