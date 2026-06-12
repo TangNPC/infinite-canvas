@@ -551,10 +551,14 @@ function parseStreamChunk(chunk: string, onDelta: (value: string) => void) {
     for (const eventBlock of chunk.split("\n\n")) {
         const data = eventBlock
             .split("\n")
-            .find((line) => line.startsWith("data: "))
-            ?.slice(6);
+            .find((line) => line.startsWith("data:"))
+            ?.slice(5)
+            .replace(/^ /, "");
         if (!data || data === "[DONE]") continue;
-        const delta = (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]?.delta?.content || "";
+        const payload = parseJsonPayload<{ error?: { message?: string }; choices?: Array<{ delta?: { content?: string } }> }>(data);
+        if (!payload) continue;
+        if (payload.error?.message) throw new ImageRequestError(payload.error.message, payload);
+        const delta = payload.choices?.[0]?.delta?.content || "";
         deltaText += delta;
     }
     if (deltaText) onDelta(deltaText);
@@ -1017,13 +1021,17 @@ export async function requestImageQuestion(config: AiConfig, messages: ChatCompl
             }
             if (apiError) throw new Error(apiError);
         }
-        if (buffer) {
+        if (buffer.trim()) {
             parseStreamChunk(buffer, (delta) => {
                 answer += delta;
                 onDelta(answer);
             });
         }
     } catch (error) {
+        if (answer.trim()) {
+            refreshRemoteUser(config);
+            return answer;
+        }
         throw new Error(readAxiosError(error, "请求失败"));
     }
     refreshRemoteUser(config);
