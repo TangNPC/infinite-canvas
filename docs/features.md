@@ -7,6 +7,15 @@ description: 当前项目已实现的主要功能
 
 当前分支是纯生图平台，保留图片、文本、提示词、素材、画布、工作流、账号同步和对象存储能力。视频创作台、音频生成、视频/音频画布节点和相关接口已转移到 `codex/video-audio-upstream-v0.3.3`。
 
+如果需要视频/音频能力，可单独拉取保留分支：
+
+```bash
+git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/HuFakai/infinite-canvas.git infinite-canvas-video-audio
+cd infinite-canvas-video-audio
+cp .env.example .env
+docker compose up -d --build
+```
+
 ## 画布项目
 
 - 支持创建多个画布项目。

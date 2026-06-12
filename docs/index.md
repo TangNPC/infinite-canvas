@@ -32,4 +32,4 @@
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地；账号同步保存配置和数据快照，不等同于完整云端媒体同步。
 - 本地直连模式下，AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
-- 当前分支是纯生图平台；视频/音频能力已转移到 `codex/video-audio-upstream-v0.3.3`。
+- 当前 `main` 分支是纯生图平台；视频/音频能力已转移到 `codex/video-audio-upstream-v0.3.3`。获取和 Docker 部署命令见 [Docker 部署](deployment.md) 与 [纯生图拆分与 PR #43 合并说明](upstream-merge-v0.3.3.md)。

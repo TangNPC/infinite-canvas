@@ -37,6 +37,8 @@
 
 ## 快速开始
 
+当前 `main` 分支是纯生图平台：
+
 ```bash
 git clone https://github.com/HuFakai/infinite-canvas.git
 cd infinite-canvas
@@ -44,13 +46,34 @@ cp .env.example .env
 # 修改默认账号密码等信息
 docker compose up -d --build
 ```
-服务器部署更新：
+
+服务器更新当前 `main` 分支：
+
 ```bash
-git pull
-
+git fetch origin
+git checkout main
+git pull --ff-only origin main
 docker compose up -d --build
-
 ```
+
+需要视频/音频能力的用户使用保留分支 `codex/video-audio-upstream-v0.3.3`。该分支保留本地合并过的视频创作台、视频/音频画布节点、Seedance/Agnes 视频链路和音频能力，适合有视频/音频需求的用户自行拉取部署：
+
+```bash
+git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/HuFakai/infinite-canvas.git infinite-canvas-video-audio
+cd infinite-canvas-video-audio
+cp .env.example .env
+docker compose up -d --build
+```
+
+已有仓库切换到视频/音频保留分支：
+
+```bash
+git fetch origin
+git checkout codex/video-audio-upstream-v0.3.3
+git pull --ff-only origin codex/video-audio-upstream-v0.3.3
+docker compose up -d --build
+```
+
 本地非 Docker 开发运行：
 
 ```bash
