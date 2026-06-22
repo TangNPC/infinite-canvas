@@ -106,7 +106,7 @@ type GenerationLog = {
     workflowInputs?: Record<string, unknown>;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "apiMode" | "outputFormat" | "outputCompression" | "moderation" | "timeout" | "retryAttempts" | "streamImages" | "streamPartialImages" | "responseFormatB64Json" | "codexCli"> & { channelId?: string; channelName?: string };
+type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "apiMode" | "outputFormat" | "outputCompression" | "moderation" | "timeout" | "retryAttempts" | "streamImages" | "streamPartialImages" | "responseFormatB64Json" | "codexCli" | "seed"> & { channelId?: string; channelName?: string };
 type RequestSnapshot = { text: string; requestConfig: AiConfig; displayConfig: GenerationLogConfig; references: ReferenceImage[] };
 type GenerationCategory = { id: string; name: string; createdAt: number };
 type ResultViewMode = "all" | "category";
@@ -358,7 +358,15 @@ export default function ImagePage() {
     };
 
     const retryLog = async (log: GenerationLog) => {
-        const snapshot = buildRequestSnapshot({ promptText: log.prompt, referenceItems: log.references });
+        const taskCount = Math.max(1, Number(log.config.count) || log.imageCount || 1);
+        const requestConfig = configFromLogConfig(effectiveConfig, log.config, String(taskCount));
+        const snapshot = buildRequestSnapshot({
+            promptText: log.prompt,
+            referenceItems: log.references,
+            taskCount,
+            configOverride: requestConfig,
+            displayConfigOverride: displayConfigFromLogConfig(requestConfig, log.config, String(taskCount)),
+        });
         if (!snapshot) return;
         await submitGenerationBatch(snapshot);
     };
@@ -709,6 +717,10 @@ export default function ImagePage() {
         setReferences(log.references || []);
         setCollapsedSections((value) => ({ ...value, prompt: false, references: !log.references?.length }));
         if (log.config.imageModel || log.model) updateConfig("imageModel", log.config.imageModel || log.model);
+        if (log.config.channelId) {
+            updateConfig("imageChannelId", log.config.channelId);
+            updateConfig("activeChannelId", log.config.channelId);
+        }
         if (log.config.quality) updateConfig("quality", log.config.quality);
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.count) updateConfig("count", log.config.count);
@@ -721,6 +733,7 @@ export default function ImagePage() {
         if (log.config.streamPartialImages) updateConfig("streamPartialImages", log.config.streamPartialImages);
         if (typeof log.config.responseFormatB64Json === "boolean") updateConfig("responseFormatB64Json", log.config.responseFormatB64Json);
         if (typeof log.config.codexCli === "boolean") updateConfig("codexCli", log.config.codexCli);
+        if (log.config.seed !== undefined) updateConfig("seed", log.config.seed);
     };
 
     const copyPrompt = async (text: string) => {
@@ -728,21 +741,35 @@ export default function ImagePage() {
         message.success("提示词已复制");
     };
 
-    const buildRequestSnapshot = ({ promptText = prompt, referenceItems = references, taskCount = generationCount }: { promptText?: string; referenceItems?: ReferenceImage[]; taskCount?: number } = {}) => {
+    const buildRequestSnapshot = ({
+        promptText = prompt,
+        referenceItems = references,
+        taskCount = generationCount,
+        configOverride,
+        displayConfigOverride,
+    }: {
+        promptText?: string;
+        referenceItems?: ReferenceImage[];
+        taskCount?: number;
+        configOverride?: AiConfig;
+        displayConfigOverride?: GenerationLogConfig;
+    } = {}) => {
         const text = promptText.trim();
+        const activeConfig = configOverride || effectiveConfig;
+        const activeModel = activeConfig.imageModel || activeConfig.model;
         if (!text) {
             message.error("请输入生图提示词");
             return null;
         }
-        if (!isAiConfigReady(effectiveConfig, model)) {
+        if (!isAiConfigReady(activeConfig, activeModel)) {
             message.warning("请先完成配置");
             openConfigDialog(true);
             return null;
         }
         return {
             text,
-            requestConfig: { ...effectiveConfig, model, activeChannelId: effectiveConfig.imageChannelId, count: "1" },
-            displayConfig: buildGenerationLogConfig({ ...effectiveConfig, model, count: String(taskCount) }),
+            requestConfig: { ...activeConfig, model: activeModel, activeChannelId: activeConfig.imageChannelId, count: "1" },
+            displayConfig: displayConfigOverride || buildGenerationLogConfig({ ...activeConfig, model: activeModel, count: String(taskCount) }),
             references: [...referenceItems],
         };
     };
@@ -764,7 +791,14 @@ export default function ImagePage() {
     };
 
     const retryResult = (result: GenerationResult) => {
-        const snapshot = buildRequestSnapshot({ promptText: result.prompt, referenceItems: result.references, taskCount: 1 });
+        const requestConfig = configFromLogConfig(effectiveConfig, result.config, "1");
+        const snapshot = buildRequestSnapshot({
+            promptText: result.prompt,
+            referenceItems: result.references,
+            taskCount: 1,
+            configOverride: requestConfig,
+            displayConfigOverride: displayConfigFromLogConfig(requestConfig, result.config, "1"),
+        });
         if (!snapshot) return;
         setResults((value) => value.filter((item) => item.id !== result.id));
         void submitGenerationBatch(snapshot);
@@ -1050,6 +1084,9 @@ const quickSizeOptions = [
     { value: "2048x2048", label: "1:1 2k" },
     { value: "2048x1152", label: "16:9 2k" },
     { value: "1152x2048", label: "9:16 2k" },
+    { value: "4096x4096", label: "1:1 4k" },
+    { value: "3840x2160", label: "16:9 4k" },
+    { value: "2160x3840", label: "9:16 4k" },
 ];
 
 const quickQualityOptions = [
@@ -1814,6 +1851,8 @@ function TaskInfo({ result, error, onCopyPrompt }: { result: GenerationResult; e
                 <Tag className="m-0">{result.config.size || "auto"}</Tag>
                 <Tag className="m-0">{result.config.quality || "auto"}</Tag>
                 <Tag className="m-0">{result.config.outputFormat || "png"}</Tag>
+                {result.image?.width && result.image?.height ? <Tag className="m-0">{`${result.image.width}x${result.image.height}`}</Tag> : null}
+                {result.image?.bytes ? <Tag className="m-0">{formatBytes(result.image.bytes)}</Tag> : null}
                 {(result.config.outputFormat || "png") !== "png" ? <Tag className="m-0">压缩 {result.config.outputCompression || "100"}</Tag> : null}
                 <Tag className="m-0">审核 {result.config.moderation || "auto"}</Tag>
                 {result.config.streamImages ? <Tag className="m-0">流式 {result.config.streamPartialImages || "1"}</Tag> : null}
@@ -2217,6 +2256,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         moderation: log.config?.moderation || "auto",
         timeout: log.config?.timeout || "600",
         retryAttempts: log.config?.retryAttempts || "0",
+        seed: log.config?.seed || "",
         channelId: log.config?.channelId || "",
         channelName: log.config?.channelName || "",
         streamImages: log.config?.streamImages || false,
@@ -2239,12 +2279,52 @@ function buildGenerationLogConfig(config: AiConfig): GenerationLogConfig {
         moderation: config.moderation,
         timeout: config.timeout,
         retryAttempts: config.retryAttempts,
+        seed: config.seed,
         channelId: config.activeChannelId || config.imageChannelId,
         channelName: resolveChannelName(config, config.activeChannelId || config.imageChannelId),
         streamImages: config.streamImages,
         streamPartialImages: config.streamPartialImages,
         responseFormatB64Json: config.responseFormatB64Json,
         codexCli: config.codexCli,
+    };
+}
+
+function configFromLogConfig(base: AiConfig, saved: GenerationLogConfig, count: string): AiConfig {
+    const channelId = saved.channelId || base.imageChannelId || base.activeChannelId;
+    const imageModel = saved.imageModel || saved.model || base.imageModel || base.model;
+    return {
+        ...base,
+        model: imageModel,
+        imageModel,
+        quality: saved.quality || base.quality,
+        size: saved.size || base.size,
+        count,
+        apiMode: saved.apiMode || base.apiMode,
+        outputFormat: saved.outputFormat || base.outputFormat,
+        outputCompression: saved.outputCompression || base.outputCompression,
+        moderation: saved.moderation || base.moderation,
+        timeout: saved.timeout || base.timeout,
+        retryAttempts: saved.retryAttempts || base.retryAttempts,
+        streamImages: typeof saved.streamImages === "boolean" ? saved.streamImages : base.streamImages,
+        streamPartialImages: saved.streamPartialImages || base.streamPartialImages,
+        responseFormatB64Json: typeof saved.responseFormatB64Json === "boolean" ? saved.responseFormatB64Json : base.responseFormatB64Json,
+        codexCli: typeof saved.codexCli === "boolean" ? saved.codexCli : base.codexCli,
+        seed: saved.seed ?? base.seed,
+        imageChannelId: channelId || base.imageChannelId,
+        activeChannelId: channelId || base.activeChannelId,
+    };
+}
+
+function displayConfigFromLogConfig(config: AiConfig, saved: GenerationLogConfig, count: string): GenerationLogConfig {
+    const channelId = config.imageChannelId || saved.channelId;
+    return {
+        ...buildGenerationLogConfig(config),
+        ...saved,
+        model: config.model,
+        imageModel: config.imageModel,
+        count,
+        channelId,
+        channelName: saved.channelName || resolveChannelName(config, channelId),
     };
 }
 

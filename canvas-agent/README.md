@@ -4,11 +4,15 @@
 
 ## 启动
 
+当前分支推荐直接运行仓库内置版本，确保网页侧边栏使用二开后的纯生图工具能力：
+
 ```bash
-npx -y @basketikun/canvas-agent
+cd canvas-agent
+npm install
+npm run dev
 ```
 
-本仓库开发时也可以直接运行：
+如需后台长期运行，可先构建后启动：
 
 ```bash
 cd canvas-agent

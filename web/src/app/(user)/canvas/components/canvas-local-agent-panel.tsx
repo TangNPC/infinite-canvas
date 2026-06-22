@@ -18,8 +18,8 @@ const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
 const AGENT_CONNECT_STEPS = [
     { title: "1. 本机已安装并登录 Codex", text: "先确认本机终端里的 Codex 可以正常使用。", command: "codex --version" },
-    { title: "2. 安装 Canvas Agent", text: "推荐全局安装，后续可以直接运行 canvas-agent。", command: "npm i -g @basketikun/canvas-agent" },
-    { title: "3. 启动本地 Agent", text: "启动后终端会输出 Local URL 和 Connect token。", command: "canvas-agent" },
+    { title: "2. 安装项目内置 Canvas Agent", text: "在当前仓库中安装依赖，使用二开后的纯生图工具能力。", command: "cd canvas-agent && npm install" },
+    { title: "3. 启动本地 Agent", text: "启动后终端会输出 Local URL 和 Connect token。", command: "cd canvas-agent && npm run dev" },
     { title: "4. 回到网页连接", text: "把终端输出的地址和 token 填到下面，点击连接。" },
 ];
 

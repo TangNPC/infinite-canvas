@@ -2348,13 +2348,28 @@ function InfiniteCanvasPage() {
     const applyAgentOps = useCallback(
         (ops: CanvasAgentOp[]) => {
             const next = applyCanvasAgentOps(canvasAgentSnapshot, ops);
+            const runGenerationOps = ops.filter((op) => op?.type === "run_generation");
+            nodesRef.current = next.nodes;
+            connectionsRef.current = next.connections;
             setNodes(next.nodes);
             setConnections(next.connections);
             setSelectedNodeIds(new Set(next.selectedNodeIds));
             setViewport(next.viewport);
+            if (runGenerationOps.length) {
+                window.setTimeout(() => {
+                    runGenerationOps.forEach((op) => {
+                        if (op.type !== "run_generation") return;
+                        const target = next.nodes.find((node) => node.id === op.nodeId);
+                        if (!target) return;
+                        const mode = op.mode || target.metadata?.generationMode || "image";
+                        const prompt = op.prompt || target.metadata?.prompt || target.metadata?.composerContent || "";
+                        void handleGenerateNode(op.nodeId, mode, prompt);
+                    });
+                }, 0);
+            }
             return next;
         },
-        [canvasAgentSnapshot],
+        [canvasAgentSnapshot, handleGenerateNode],
     );
 
     const undoAgentOps = useCallback(() => {

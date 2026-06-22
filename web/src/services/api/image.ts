@@ -1141,16 +1141,14 @@ function withSystemMessage<T extends ResponseInputMessage>(config: AiConfig, mes
 async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, params: ImageRequestParams, options: RequestOptions = {}): Promise<GeneratedImage[]> {
     const mime = MIME_MAP[params.outputFormat];
 
-    // 针对 Agnes 渠道文生图模型定制精简 Payload，并强制注入高离散度种子
+    // Agnes 对请求体比较严格，默认只发送官方通用字段；用户显式填写 seed 时再放入 extra_body。
     if (isAgnesImageModel(config.model)) {
-        const seedValue = generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed);
+        const seedValue = config.seed ? generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed) : undefined;
         const body: Record<string, unknown> = {
             model: config.model,
             prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
-            extra_body: {
-                seed: seedValue,
-            },
         };
+        if (seedValue !== undefined) body.extra_body = { seed: seedValue };
         if (params.size) body.size = params.size;
 
         return requestAndParseImages(
@@ -1173,11 +1171,11 @@ async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: num
             async (response) => {
                 if (config.streamImages && isEventStreamResponse(response)) {
                     const images = await parseImagesStreamResponse(response, mime);
-                    return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
+                    return { images: images.map((img) => (seedValue === undefined ? img : { ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
                 }
                 const text = await response.text();
                 const images = parseImageTextPayload(text, mime);
-                return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "text-fallback")) };
+                return { images: images.map((img) => (seedValue === undefined ? img : { ...img, seed: seedValue })), responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "text-fallback")) };
             },
         );
     }
@@ -1637,14 +1635,13 @@ async function requestAgnesImageEdit(config: AiConfig & { seedIndex?: number; se
         })
     );
 
-    const seedValue = generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed);
+    const seedValue = config.seed ? generateDiscreteSeed(config.seedIndex, config.seedCount, config.seed) : undefined;
+    const extraBody: Record<string, unknown> = { image: imageUrls };
+    if (seedValue !== undefined) extraBody.seed = seedValue;
     const body: Record<string, unknown> = {
         model: config.model,
         prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
-        extra_body: {
-            image: imageUrls, // 👈 核心对齐：官方文档参考图参数 extra_body.image 数组
-            seed: seedValue, // 👈 采用带分区锁定的高离散真随机种子发生器
-        },
+        extra_body: extraBody,
     };
     if (params.size) body.size = params.size; // 👈 官方支持参数
     // 彻底剔除 response_format、output_format、moderation、quality、stream 等 LiteLLM/agnes-i2i 模型不支持的冗余参数，防止引发 400 阻断
@@ -1669,11 +1666,11 @@ async function requestAgnesImageEdit(config: AiConfig & { seedIndex?: number; se
         async (response) => {
             if (config.streamImages && isEventStreamResponse(response)) {
                 const images = await parseImagesStreamResponse(response, mime);
-                return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
+                return { images: images.map((img) => (seedValue === undefined ? img : { ...img, seed: seedValue })), responseBody: summarizeGeneratedImages(images, "event-stream") };
             }
             const text = await response.text();
             const images = parseImageTextPayload(text, mime);
-            return { images: images.map((img) => ({ ...img, seed: seedValue })), responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "text-fallback")) };
+            return { images: images.map((img) => (seedValue === undefined ? img : { ...img, seed: seedValue })), responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "text-fallback")) };
         },
     );
 }
