@@ -30,3 +30,10 @@ description: 记录 Gemini、停止生成和 Canvas Agent 合并范围
 - 停止生成后不应出现失败卡片或错误状态。
 - 本地 Canvas Agent 能连接并执行纯生图 ops。
 - 网页 Agent Loop 不应出现视频/音频工具或文案。
+
+## 本次审查结论
+
+- 当前分支相对 `main@v0.3.4` 已包含大图 Blob 修复、Gemini 协议、生成停止、Canvas Agent、网页 Agent Loop 和后续本地 Agent 稳定性修复。
+- 当前上游 `basketikun/infinite-canvas@8cbe00e` 的 Gemini 能力已合入；上游后续 `v0.4.0` 中的纯前端化、WebDAV、视频/音频和部署结构调整仍按约定未进入当前分支。
+- 审查中删除了旧文档站残留的 `docs/next.config.mjs`、`docs/.dockerignore`、`docs/.gitignore` 和系统垃圾 `.DS_Store`。
+- 审查中清理了纯生图分支里已不可达的视频素材提示文案，避免误导为当前主线仍支持视频素材。

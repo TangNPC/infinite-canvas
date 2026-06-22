@@ -2,14 +2,21 @@
 
 ## Unreleased
 
+## v0.3.5 - 2026-06-23
+
 + [修复] 优化大尺寸图片处理：`/images/edits` 参考图改为直接使用 Blob/FormData 上传，避免 4K 图片在请求前重复转 base64 导致 `Maximum call stack size exceeded`。
 + [修复] 生图工作台结果下载改为直接读取原始 Blob 保存，避免大图下载文件不完整或小于云端原始文件。
 + [合并] 继续合入上游 `basketikun/infinite-canvas@8cbe00e` 的非视频/音频能力：Gemini API 格式、画布生成停止、Canvas Agent / 网页 Agent Loop。
 + [新增] 后台渠道和本地渠道新增 `protocol` 配置，支持 OpenAI / Gemini 两种协议；Gemini 渠道可拉取模型、文本问答、文生图、参考图生图和 Agent 工具调用。
 + [新增] 画布配置节点和提示词浮层生成中可切换为“停止”，浏览器取消请求后节点恢复空闲状态，不再标记为失败。
 + [新增] 新增 `canvas-agent` 本地 Agent 子项目和画布 Agent 面板，网页 Agent 仅开放读取画布、读取选区、创建文本节点、创建生图流程、选择节点和触发文本/图片生成等纯生图工具。
++ [新增] 本地 Canvas Agent 支持手动停止当前对话；运行中发送按钮会切换为停止按钮，服务端会终止当前 Codex app-server 工作并恢复面板输入状态。
++ [优化] 生图工作台结果卡片和历史卡片展示实际图片尺寸/文件体积，多图结果展示总文件体积；重试会复用原结果的渠道、模型、尺寸、质量、接口模式、格式、审核、超时、流式和失败重试配置。
++ [优化] 生图底部工作台尺寸选项新增 1:1、16:9、9:16 的 4K 尺寸。
++ [优化] Agnes Image 2.1 Flash 请求默认使用最小请求体，不再默认附带 `extra_body.seed`，只有用户显式填写 seed 时才传递。
++ [修复] 本地 Canvas Agent 兼容 Codex 空会话和失效 thread，避免首次发送时出现 `not materialized yet`、`no rollout found` 或 `thread not found`。
 + [调整] Gemini 蒙版局部重绘直接提示“不支持蒙版编辑”，不降级到 `/responses` 或其他接口。
-+ [文档] 说明本次未合入 WebDAV、视频/音频、Seedance 和上游纯前端化架构的原因。
++ [文档] 说明本次未合入 WebDAV、视频/音频、Seedance 和上游纯前端化架构的原因，并删除旧文档站残留配置文件。
 
 ## v0.3.4 - 2026-06-13
 

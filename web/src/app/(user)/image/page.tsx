@@ -536,7 +536,7 @@ export default function ImagePage() {
                 setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey, source: payload.source === "library" ? "library" : "upload", temporary: payload.source !== "library" }]);
             }
         } else {
-            message.warning("视频素材不能作为生图参考图");
+            message.warning("该素材不能作为生图参考图");
         }
         setAssetPickerOpen(false);
     };

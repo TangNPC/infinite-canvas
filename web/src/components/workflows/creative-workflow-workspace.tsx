@@ -409,7 +409,7 @@ export function CreativeWorkflowWorkspace({
             return;
         }
         if (payload.kind !== "image") {
-            message.warning("视频素材不能作为工作流参考图");
+            message.warning("该素材不能作为工作流参考图");
             return;
         }
         setWorkflowReferences((value) => [
@@ -436,7 +436,7 @@ export function CreativeWorkflowWorkspace({
             return;
         }
         if (payload.kind !== "image") {
-            message.warning("视频素材不能作为工作流 Agent 参考图");
+            message.warning("该素材不能作为工作流 Agent 参考图");
             return;
         }
         setAgentReferences((value) => [

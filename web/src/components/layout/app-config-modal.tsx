@@ -739,7 +739,7 @@ export function AppConfigModal() {
         >
             <div className="flex flex-col items-center justify-center p-6 space-y-4">
                 <ReloadOutlined spin className="text-3xl text-blue-500" />
-                <span className="text-base font-medium">正在将本地的图片和视频资源安全地同步到云端存储...</span>
+                <span className="text-base font-medium">正在将本地图片资源安全地同步到云端存储...</span>
                 <span className="text-sm text-gray-500">
                     进度: {migrationProgress.current} / {migrationProgress.total} (
                     {migrationProgress.total > 0 ? Math.round((migrationProgress.current / migrationProgress.total) * 100) : 0}
