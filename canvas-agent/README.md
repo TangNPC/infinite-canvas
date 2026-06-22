@@ -42,13 +42,7 @@ Canvas Agent 默认只监听 `127.0.0.1`。网页第一次带正确 token 连接
 
 如果希望 Codex 终端能直接操作画布，需要先把 Canvas Agent 注册成 Codex MCP。
 
-Canvas Agent 启动后，给 Codex 添加 MCP：
-
-```bash
-codex mcp add infinite-canvas -- npx -y @basketikun/canvas-agent mcp
-```
-
-本仓库开发时可以改成，实际使用建议替换为本机绝对路径：
+Canvas Agent 启动后，给 Codex 添加 MCP。本分支建议使用仓库内置构建产物，实际使用时把路径替换为你的仓库绝对路径：
 
 ```bash
 codex mcp add infinite-canvas -- node /path/to/infinite-canvas/canvas-agent/dist/index.js mcp

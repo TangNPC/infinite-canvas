@@ -53,11 +53,17 @@ export async function startCodexThread(emit: AgentEmit, cwd?: string) {
 
 export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
     codexApp ||= await CodexAppClient.start(emit);
-    await loadCodexThread(emit, threadId, cwd, false);
-    const thread = await codexApp.resumeThread(threadId, cwd);
-    assertThreadWorkspace(thread, cwd);
-    codexThreadId = String(field(thread, "id") || threadId);
-    return { thread, messages: threadMessages(thread) };
+    try {
+        await loadCodexThread(emit, threadId, cwd, false);
+        const thread = await codexApp.resumeThread(threadId, cwd);
+        assertThreadWorkspace(thread, cwd);
+        codexThreadId = String(field(thread, "id") || threadId);
+        return { thread, messages: threadMessages(thread) };
+    } catch (error) {
+        if (!isEmptyCodexThreadError(error)) throw error;
+        codexThreadId = threadId;
+        return { thread: { id: threadId, cwd, status: "empty", preview: "" }, messages: [] };
+    }
 }
 
 export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; searchTerm?: string; limit?: number }) {
@@ -75,8 +81,13 @@ export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; 
 }
 
 export async function readCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
-    const thread = await loadCodexThread(emit, threadId, cwd, true);
-    return { thread: summarizeCodexThread(thread), messages: threadMessages(thread) };
+    try {
+        const thread = await loadCodexThread(emit, threadId, cwd, true);
+        return { thread: summarizeCodexThread(thread), messages: threadMessages(thread) };
+    } catch (error) {
+        if (!isEmptyCodexThreadError(error)) throw error;
+        return { thread: summarizeCodexThread({ id: threadId, cwd, status: "empty", preview: "" }), messages: [] };
+    }
 }
 
 export async function verifyCodexThreadWorkspace(emit: AgentEmit, threadId: string, cwd: string) {
@@ -98,11 +109,7 @@ export function runClaudeTurn(prompt: string, emit: AgentEmit) {
 
 async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions) {
     if (options.threadId) {
-        const result = await app.readThread(options.threadId, false);
-        assertThreadWorkspace(field(result, "thread") || {}, options.cwd);
-        const thread = await app.resumeThread(options.threadId, options.cwd);
-        assertThreadWorkspace(thread, options.cwd);
-        codexThreadId = String(field(thread, "id") || options.threadId);
+        codexThreadId = options.threadId;
         return codexThreadId;
     }
     if (!codexThreadId) {
@@ -303,6 +310,11 @@ async function loadCodexThread(emit: AgentEmit, threadId: string, cwd: string | 
     const thread = field(result, "thread") || {};
     assertThreadWorkspace(thread, cwd);
     return thread;
+}
+
+function isEmptyCodexThreadError(error: unknown) {
+    const message = errorMessage(error);
+    return message.includes("not materialized yet") || message.includes("no rollout found");
 }
 
 function assertThreadWorkspace(thread: unknown, cwd?: string) {

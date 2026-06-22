@@ -14,6 +14,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 画布文本生成、图片生成、参考图生成和反推提示词需要分别确认停止生成不清除已经成功返回的结果。
 - 本地 `canvas-agent` 需要确认可按 `canvas-agent/README.md` 启动，并在画布助手 Agent 模式中填写地址和 token 后连接成功。
 - 本地 `canvas-agent` 需要确认使用仓库内置版本启动后，Agent 执行 `canvas_generate_image` 或 `canvas_run_generation` 时，网页侧确认后会自动触发配置节点开始生图。
+- 本地 `canvas-agent` 需要确认新建空对话后第一次发送消息不会再出现 `not materialized yet` 或 `no rollout found` 错误，历史面板读取空会话时应显示为空而不是出错。
 - 网页 Agent Loop 需要确认可读取当前画布、读取选区、创建文本节点、创建生图流程、选择节点和触发文本/图片生成。
 - Agent 工具列表和提示词需要确认不出现视频、音频、Seedance 或 WebDAV 能力。
 - 分支 `codex/video-audio-upstream-v0.3.3` 需要确认已经保存并推送当前视频/音频合并成果。
