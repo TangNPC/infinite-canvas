@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [修复] 优化大尺寸图片处理：`/images/edits` 参考图改为直接使用 Blob/FormData 上传，避免 4K 图片在请求前重复转 base64 导致 `Maximum call stack size exceeded`。
++ [修复] 生图工作台结果下载改为直接读取原始 Blob 保存，避免大图下载文件不完整或小于云端原始文件。
+
 ## v0.3.4 - 2026-06-13
 
 + [调整] 当前分支拆分为纯生图平台，视频/音频合并成果已保存在 `codex/video-audio-upstream-v0.3.3`，本分支不再保留视频创作台、音频生成、视频/音频节点和相关接口。

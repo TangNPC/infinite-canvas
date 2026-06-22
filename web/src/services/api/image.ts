@@ -1,7 +1,7 @@
 import axios from "axios";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { imageToDataUrl, resolveImageUrl } from "@/services/image-storage";
+import { imageToBlob, imageToDataUrl, resolveImageUrl } from "@/services/image-storage";
 import { buildApiUrl, channelIdForActiveModel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -32,6 +32,13 @@ type ParsedImageResponse = {
     images: GeneratedImage[];
     responseBody: string;
 };
+
+async function referenceImageToFile(image: ReferenceImage) {
+    const blob = await imageToBlob(image);
+    const mime = blob.type || image.type || "image/png";
+    const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : mime.includes("webp") ? "webp" : "png";
+    return new File([blob], image.name || `reference.${ext}`, { type: mime });
+}
 
 export class ImageRequestError extends Error {
     detail?: string;
@@ -783,7 +790,7 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
         formData.set("stream", "true");
         formData.set("partial_images", String(params.streamPartialImages));
     }
-    const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    const files = await Promise.all(references.map((image) => referenceImageToFile(image)));
     files.forEach((file) => formData.append("image", file));
     if (maskDataUrl) formData.set("mask", dataUrlToFile({ id: "mask", name: "mask.png", type: "image/png", dataUrl: maskDataUrl }));
 
@@ -917,7 +924,6 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
 
 async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: { maskDataUrl?: string } = {}): Promise<GeneratedImage[]> {
     const params = createImageRequestParams(config);
-    const inputImageDataUrls = references.length ? await Promise.all(references.map((image) => imageToDataUrl(image))) : [];
     const useConcurrentSingleRequests = config.apiMode === "responses" || config.codexCli || config.streamImages;
     if (params.n > 1 && useConcurrentSingleRequests) {
         const results = await Promise.allSettled(Array.from({ length: params.n }, () => requestImages({ ...config, count: "1" }, prompt, references)));
@@ -930,7 +936,10 @@ async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?
         return requestAgnesImageEdit(config, prompt, references, params);
     }
     if (references.length && options.maskDataUrl) return requestImageEditSingle(config, prompt, references, params, options.maskDataUrl);
-    if (config.apiMode === "responses" && !options.maskDataUrl) return requestResponsesSingle(config, prompt, inputImageDataUrls, params);
+    if (config.apiMode === "responses" && !options.maskDataUrl) {
+        const inputImageDataUrls = references.length ? await Promise.all(references.map((image) => imageToDataUrl(image))) : [];
+        return requestResponsesSingle(config, prompt, inputImageDataUrls, params);
+    }
     return references.length ? requestImageEditSingle(config, prompt, references, params, options.maskDataUrl) : requestImageGenerationSingle(config, prompt, params);
 }
 

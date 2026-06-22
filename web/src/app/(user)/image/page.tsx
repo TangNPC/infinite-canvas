@@ -46,7 +46,7 @@ import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { ImageRequestError, requestEdit, requestGeneration } from "@/services/api/image";
 import { fetchUserConfig, syncUserImageHistory } from "@/services/api/user-config";
-import { deleteStoredImages, imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, imageToBlob, imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -452,10 +452,8 @@ export default function ImagePage() {
 
     const downloadImage = async (image: GeneratedImage, index: number) => {
         try {
-            const dataUrl = await imageToDataUrl(image);
-            const response = await fetch(dataUrl || image.dataUrl);
-            const blob = await response.blob();
-            saveAs(blob, `image-${index + 1}.${imageExtension(image.mimeType || blob.type || dataUrl || image.dataUrl)}`);
+            const blob = await imageToBlob(image);
+            saveAs(blob, `image-${index + 1}.${imageExtension(blob.type || image.mimeType || image.dataUrl)}`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "图片下载失败");
         }
