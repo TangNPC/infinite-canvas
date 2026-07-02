@@ -715,6 +715,34 @@ function InfiniteCanvasPage() {
         });
         return map;
     }, [connections, nodes]);
+    const connectionInputBadgeById = useMemo(() => {
+        const map = new Map<string, string>();
+        const badgeByConfigAndInputId = new Map<string, string>();
+
+        configInputsById.forEach((inputs, configId) => {
+            let imageIndex = 0;
+            let textIndex = 0;
+            inputs.forEach((input) => {
+                if (input.type === "image") {
+                    imageIndex += 1;
+                    badgeByConfigAndInputId.set(`${configId}:${input.nodeId}`, `图${imageIndex}`);
+                } else {
+                    textIndex += 1;
+                    badgeByConfigAndInputId.set(`${configId}:${input.nodeId}`, `文${textIndex}`);
+                }
+            });
+        });
+
+        connections.forEach((connection) => {
+            const target = nodeById.get(connection.toNodeId);
+            const source = nodeById.get(connection.fromNodeId);
+            if (!target || !source || target.type !== CanvasNodeType.Config) return;
+            const badge = badgeByConfigAndInputId.get(`${target.id}:${source.id}`);
+            if (badge) map.set(connection.id, badge);
+        });
+
+        return map;
+    }, [configInputsById, connections, nodeById]);
 
     const createNode = useCallback(
         (type: CanvasNodeType, position?: Position) => {
@@ -2615,6 +2643,7 @@ function InfiniteCanvasPage() {
                                         from={from}
                                         to={to}
                                         active={selectedConnectionId === connection.id || relatedHighlight.connectionIds.has(connection.id)}
+                                        inputBadge={connectionInputBadgeById.get(connection.id)}
                                         onSelect={() => {
                                             setSelectedConnectionId(connection.id);
                                             setSelectedNodeIds(new Set());

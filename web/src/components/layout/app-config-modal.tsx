@@ -501,7 +501,15 @@ export function AppConfigModal() {
                                     <div key={channel.id} className="space-y-2 rounded-md bg-stone-50 p-2 dark:bg-stone-900">
                                         <div className="grid gap-2 md:grid-cols-[120px_140px_minmax(0,1fr)_minmax(0,1fr)_auto]">
                                             <Input value={channel.name} placeholder="渠道名称" onChange={(event) => patchLocalChannel(channel.id, { name: event.target.value })} />
-                                            <Select value={channel.protocol || "openai"} options={[{ label: "OpenAI", value: "openai" }, { label: "Gemini", value: "gemini" }]} onChange={(value) => patchLocalChannelProtocol(channel, value)} />
+                                            <Select
+                                                value={channel.protocol || "openai"}
+                                                options={[
+                                                    { label: "OpenAI", value: "openai" },
+                                                    { label: "Gemini", value: "gemini" },
+                                                    { label: "Sub2 生图", value: "sub2" },
+                                                ]}
+                                                onChange={(value) => patchLocalChannelProtocol(channel, value)}
+                                            />
                                             <Input value={channel.baseUrl} placeholder="Base URL" onChange={(event) => patchLocalChannel(channel.id, { baseUrl: event.target.value })} />
                                             <Input.Password value={channel.apiKey} placeholder="API Key" onChange={(event) => patchLocalChannel(channel.id, { apiKey: event.target.value })} />
                                             <div className="flex gap-2">

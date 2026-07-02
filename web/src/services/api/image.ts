@@ -698,6 +698,21 @@ function geminiConfig(config: AiConfig): AiConfig {
     };
 }
 
+function sub2ImageConfig(config: AiConfig): AiConfig {
+    const channel = localChannelForActiveModel(config);
+    return {
+        ...config,
+        baseUrl: channel?.baseUrl || config.baseUrl,
+        apiKey: channel?.apiKey || config.apiKey,
+    };
+}
+
+function isSub2ImageChannel(config: AiConfig) {
+    if (config.channelMode !== "local") return false;
+    const channel = localChannelForActiveModel(config);
+    return channel?.protocol === "sub2";
+}
+
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
     const normalizedBaseUrl = (config.baseUrl || "https://generativelanguage.googleapis.com").trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
@@ -1274,6 +1289,49 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
     );
 }
 
+async function requestSub2ImageTask(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams, options: RequestOptions = {}): Promise<GeneratedImage[]> {
+    const sub2Config = sub2ImageConfig(config);
+    const mime = MIME_MAP[params.outputFormat];
+    const formData = new FormData();
+    formData.set("baseUrl", sub2Config.baseUrl);
+    formData.set("model", sub2Config.model || "gpt-image-2");
+    formData.set("prompt", withPromptGuard(config, withSystemPrompt(config, prompt)));
+    formData.set("output_format", params.outputFormat);
+    formData.set("count", String(params.n || 1));
+    formData.set("batch_concurrency", String(Math.min(Math.max(params.n || 1, 1), 15)));
+    formData.set("timeoutSeconds", String(params.timeoutSeconds));
+    if (params.size) formData.set("size", params.size);
+    if (params.quality && params.quality !== "auto" && !config.codexCli) formData.set("quality", params.quality);
+    const files = await Promise.all(references.map((image) => referenceImageToFile(image)));
+    files.forEach((file) => formData.append("image", file));
+
+    return requestAndParseImages(
+        config,
+        "/sub2-image-tasks",
+        summarizeFormData(formData),
+        params.timeoutSeconds,
+        () =>
+            requestWithTransientRetry(() =>
+                withTimeout(
+                    params.timeoutSeconds,
+                    (signal) =>
+                        fetch("/api/sub2-image-tasks", {
+                            method: "POST",
+                            headers: { Authorization: `Bearer ${sub2Config.apiKey}` },
+                            body: formData,
+                            signal,
+                        }),
+                    options.signal,
+                ),
+            ),
+        async (response) => {
+            const text = await response.text();
+            const images = parseImageTextPayload(text, mime);
+            return { images, responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "sub2-task")) };
+        },
+    );
+}
+
 function createResponsesImageTool(config: AiConfig, params: ImageRequestParams, isEdit: boolean) {
     const tool: Record<string, unknown> = {
         type: "image_generation",
@@ -1377,6 +1435,10 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
 
 async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: { maskDataUrl?: string; signal?: AbortSignal } = {}): Promise<GeneratedImage[]> {
     const params = createImageRequestParams(config);
+    if (isSub2ImageChannel(config)) {
+        if (options.maskDataUrl) throw new ImageRequestError("sub2 /batch-image-tasks 暂不支持蒙版局部编辑，请使用参考图图生图或切换支持 /images/edits mask 的渠道");
+        return requestSub2ImageTask(config, prompt, references, params, options);
+    }
     if (activeLocalProtocol(config) === "gemini") {
         if (options.maskDataUrl) throw new ImageRequestError("Gemini 调用格式暂不支持蒙版编辑");
         return requestGeminiImages(geminiConfig(config), prompt, references, params.n, options);

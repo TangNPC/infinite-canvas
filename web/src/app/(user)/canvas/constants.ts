@@ -11,7 +11,7 @@ type CanvasNodeSpec = {
 export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Image]: { width: 340, height: 240, title: "New Generation" },
     [CanvasNodeType.Text]: { width: 340, height: 240, title: "Note" },
-    [CanvasNodeType.Config]: { width: 340, height: 240, title: "生成配置" },
+    [CanvasNodeType.Config]: { width: 340, height: 290, title: "生成配置" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 
 export const NODE_SPECS = {

@@ -9,7 +9,7 @@ import type { AdminPublicSettings } from "@/services/api/admin";
 
 export type LocalModelChannel = {
     id: string;
-    protocol: "openai" | "gemini";
+    protocol: "openai" | "gemini" | "sub2";
     name: string;
     baseUrl: string;
     apiKey: string;
@@ -58,6 +58,7 @@ export type AiConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export const OPENAI_BASE_URL = "https://api.openai.com";
 export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+export const SUB2_IMAGE_BASE_URL = "https://img.94576354.xyz";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -139,9 +140,9 @@ export function normalizeLocalChannels(config: Partial<AiConfig>) {
     const channels = Array.isArray(config.localChannels) ? config.localChannels : [];
     const normalized = channels.map((channel, index) => ({
         id: channel.id || `local-${index + 1}`,
-        protocol: channel.protocol === "gemini" ? "gemini" as const : "openai" as const,
+        protocol: normalizeLocalProtocol(channel.protocol),
         name: typeof channel.name === "string" ? channel.name : `本地渠道 ${index + 1}`,
-        baseUrl: channel.baseUrl || (channel.protocol === "gemini" ? GEMINI_BASE_URL : ""),
+        baseUrl: channel.baseUrl || defaultBaseUrlForProtocol(normalizeLocalProtocol(channel.protocol)),
         apiKey: channel.apiKey || "",
         models: Array.isArray(channel.models) ? channel.models.filter(Boolean) : [],
     }));
@@ -258,8 +259,16 @@ export function buildApiUrl(baseUrl: string, path: string) {
     return `${apiBaseUrl}${path}`;
 }
 
-export function defaultBaseUrlForProtocol(protocol: "openai" | "gemini") {
-    return protocol === "gemini" ? GEMINI_BASE_URL : OPENAI_BASE_URL;
+export function defaultBaseUrlForProtocol(protocol: LocalModelChannel["protocol"]) {
+    if (protocol === "gemini") return GEMINI_BASE_URL;
+    if (protocol === "sub2") return SUB2_IMAGE_BASE_URL;
+    return OPENAI_BASE_URL;
+}
+
+function normalizeLocalProtocol(protocol: unknown): LocalModelChannel["protocol"] {
+    if (protocol === "gemini") return "gemini";
+    if (protocol === "sub2") return "sub2";
+    return "openai";
 }
 
 function normalizeArkPlanBaseUrl(baseUrl: string) {

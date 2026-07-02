@@ -41,6 +41,10 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
     const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
     const textInputs = inputs.filter((input) => input.type === "text");
     const imageInputs = inputs.filter((input) => input.type === "image");
+    const inlinePrompt = node.metadata?.prompt || "";
+    const inlinePromptEnabled = inlinePrompt.trim().length > 0;
+    const totalTextCount = inputSummary.textCount + (inlinePromptEnabled ? 1 : 0);
+    const hasPreviewInputs = inputs.length > 0 || inlinePromptEnabled;
 
     const moveInput = (input: NodeGenerationInput, offset: number) => {
         const sameTypeInputs = inputs.filter((item) => item.type === input.type);
@@ -101,7 +105,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
             </div>
 
             <div className="mb-2 flex flex-wrap gap-1.5" onMouseDown={(event) => event.stopPropagation()}>
-                <InputChip label="提示词" value={`${inputSummary.textCount} 个`} style={chipStyle} />
+                <InputChip label="提示词" value={`${totalTextCount} 个`} style={chipStyle} />
                 <InputChip label="参考图" value={`${inputSummary.imageCount} 张`} style={chipStyle} />
                 <button type="button" className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-[11px]" style={chipStyle} onClick={() => setPreviewOpen(true)}>
                     <Eye className="size-3.5" />
@@ -159,11 +163,23 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                 </div>
             )}
 
+            <Input.TextArea
+                data-canvas-no-zoom
+                className="thin-scrollbar !mb-2 !min-h-[48px] !resize-none !rounded-lg !text-xs !leading-5"
+                value={inlinePrompt}
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                placeholder={mode === "image" ? "直接写生图提示词；也可以继续连接文本节点补充" : "直接写文本任务要求；也可以连接文本节点补充"}
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+                onChange={(event) => onConfigChange(node.id, { prompt: event.target.value })}
+            />
+
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
                 danger={isRunning}
-                disabled={!isRunning && !inputSummary.textCount && !inputSummary.imageCount}
+                disabled={!isRunning && !totalTextCount && !inputSummary.imageCount}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={() => (isRunning ? onStop(node.id) : onGenerate(node.id))}
             >
@@ -193,7 +209,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                 )}
             >
                 <div onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onWheelCapture={(event) => event.stopPropagation()}>
-                    {inputs.length ? (
+                    {hasPreviewInputs ? (
                         <div className="flex h-[min(66vh,580px)] flex-col gap-3 overflow-hidden">
                             <div className="shrink-0">
                                 <PreviewSection title="图片提示词" count={imageInputs.length} empty="暂无图片提示词">
@@ -206,8 +222,14 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, inputs, o
                             </div>
                             <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-hidden">
                                 <div className="thin-scrollbar min-h-0 overflow-y-auto pr-1.5">
-                                    <PreviewSection title="文本提示词" count={textInputs.length} empty="暂无文本提示词">
+                                    <PreviewSection title="文本提示词" count={totalTextCount} empty="暂无文本提示词">
                                         <div className="space-y-1.5">
+                                            {inlinePromptEnabled ? (
+                                                <div className="rounded-md border px-2 py-1.5" style={{ background: `${theme.node.fill}99`, borderColor: theme.node.stroke }}>
+                                                    <div className="truncate text-[10px] font-medium opacity-50">内置提示词</div>
+                                                    <div className="line-clamp-2 whitespace-pre-wrap break-words text-[11px] leading-4 opacity-80">{inlinePrompt}</div>
+                                                </div>
+                                            ) : null}
                                             {textInputs.map((input, index) => (
                                                 <TextSortCard key={input.nodeId} input={input} textIndex={index} textTotal={textInputs.length} inputs={inputs} theme={theme} onMove={moveInput} onEdit={startTextEdit} />
                                             ))}

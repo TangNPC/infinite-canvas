@@ -163,7 +163,11 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         const container = containerRef.current;
         if (!container) return;
 
-        const preventWheelScroll = (event: WheelEvent) => event.preventDefault();
+        const preventWheelScroll = (event: WheelEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (target?.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
+            event.preventDefault();
+        };
         container.addEventListener("wheel", preventWheelScroll, { passive: false });
         return () => container.removeEventListener("wheel", preventWheelScroll);
     }, [containerRef]);
