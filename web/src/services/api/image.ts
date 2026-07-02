@@ -863,12 +863,23 @@ function consumeResponseStreamText(state: ResponseStreamState, text: string, onD
 }
 
 async function requestStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(aiApiUrl(config, "/responses"), {
-        method: "POST",
-        headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
-        body: JSON.stringify({ ...body, stream: true }),
-        signal: options?.signal,
-    });
+    const requestBody = { ...body, stream: true };
+    const response = isSub2ResponsesTextChannel(config)
+        ? await fetch("/api/sub2-responses", {
+              method: "POST",
+              headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+              body: JSON.stringify({
+                  baseUrl: localChannelForActiveModel(config)?.baseUrl || config.baseUrl,
+                  payload: requestBody,
+              }),
+              signal: options?.signal,
+          })
+        : await fetch(aiApiUrl(config, "/responses"), {
+              method: "POST",
+              headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+              body: JSON.stringify(requestBody),
+              signal: options?.signal,
+          });
     if (!response.ok) throw new ImageRequestError(await readFetchError(response, "请求失败"));
     if (!response.body) return parseToolResponse((await response.json()) as ResponsesApiResponse);
 
