@@ -10,7 +10,7 @@ description: 当前项目已实现的主要功能
 如果需要视频/音频能力，可单独拉取保留分支：
 
 ```bash
-git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/HuFakai/infinite-canvas.git infinite-canvas-video-audio
+git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/TangNPC/infinite-canvas.git infinite-canvas-video-audio
 cd infinite-canvas-video-audio
 cp .env.example .env
 docker compose up -d --build

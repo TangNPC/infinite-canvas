@@ -12,7 +12,7 @@ description: 使用 Docker Compose 部署无限画布
 当前 `main` 分支是纯生图平台，不包含视频/音频创作能力。
 
 ```bash
-git clone https://github.com/HuFakai/infinite-canvas.git
+git clone https://github.com/TangNPC/infinite-canvas.git
 cd infinite-canvas
 cp .env.example .env
 docker compose up -d --build
@@ -48,7 +48,7 @@ docker compose up -d --build
 全新部署：
 
 ```bash
-git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/HuFakai/infinite-canvas.git infinite-canvas-video-audio
+git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/TangNPC/infinite-canvas.git infinite-canvas-video-audio
 cd infinite-canvas-video-audio
 cp .env.example .env
 docker compose up -d --build

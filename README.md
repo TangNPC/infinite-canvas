@@ -40,7 +40,7 @@
 当前 `main` 分支是纯生图平台：
 
 ```bash
-git clone https://github.com/HuFakai/infinite-canvas.git
+git clone https://github.com/TangNPC/infinite-canvas.git
 cd infinite-canvas
 cp .env.example .env
 # 修改默认账号密码等信息
@@ -59,7 +59,7 @@ docker compose up -d --build
 需要视频/音频能力的用户使用保留分支 `codex/video-audio-upstream-v0.3.3`。该分支保留本地合并过的视频创作台、视频/音频画布节点、Seedance/Agnes 视频链路和音频能力，适合有视频/音频需求的用户自行拉取部署：
 
 ```bash
-git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/HuFakai/infinite-canvas.git infinite-canvas-video-audio
+git clone -b codex/video-audio-upstream-v0.3.3 https://github.com/TangNPC/infinite-canvas.git infinite-canvas-video-audio
 cd infinite-canvas-video-audio
 cp .env.example .env
 docker compose up -d --build
@@ -144,10 +144,10 @@ npm run dev
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=HuFakai%2Finfinite-canvas&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=TangNPC%2Finfinite-canvas&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=HuFakai/infinite-canvas&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=HuFakai/infinite-canvas&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=HuFakai/infinite-canvas&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=TangNPC/infinite-canvas&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=TangNPC/infinite-canvas&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=TangNPC/infinite-canvas&type=date&legend=top-left" />
  </picture>
 </a>
