@@ -9,7 +9,7 @@ import type { AdminPublicSettings } from "@/services/api/admin";
 
 export type LocalModelChannel = {
     id: string;
-    protocol: "openai" | "gemini" | "sub2";
+    protocol: "openai" | "gemini" | "sub2" | "sub2-chat";
     name: string;
     baseUrl: string;
     apiKey: string;
@@ -59,6 +59,7 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export const OPENAI_BASE_URL = "https://api.openai.com";
 export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 export const SUB2_IMAGE_BASE_URL = "https://img.94576354.xyz";
+export const SUB2_CHAT_BASE_URL = "https://api.94576354.xyz";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -262,12 +263,14 @@ export function buildApiUrl(baseUrl: string, path: string) {
 export function defaultBaseUrlForProtocol(protocol: LocalModelChannel["protocol"]) {
     if (protocol === "gemini") return GEMINI_BASE_URL;
     if (protocol === "sub2") return SUB2_IMAGE_BASE_URL;
+    if (protocol === "sub2-chat") return SUB2_CHAT_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeLocalProtocol(protocol: unknown): LocalModelChannel["protocol"] {
     if (protocol === "gemini") return "gemini";
     if (protocol === "sub2") return "sub2";
+    if (protocol === "sub2-chat") return "sub2-chat";
     return "openai";
 }
 

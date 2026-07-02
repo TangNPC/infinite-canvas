@@ -713,6 +713,12 @@ function isSub2ImageChannel(config: AiConfig) {
     return channel?.protocol === "sub2";
 }
 
+function isSub2ResponsesTextChannel(config: AiConfig) {
+    if (config.channelMode !== "local") return false;
+    const channel = localChannelForActiveModel(config);
+    return channel?.protocol === "sub2-chat";
+}
+
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
     const normalizedBaseUrl = (config.baseUrl || "https://generativelanguage.googleapis.com").trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
@@ -1505,6 +1511,28 @@ export async function requestImageQuestion(config: AiConfig, messages: ChatCompl
         try {
             const answer = (await requestGeminiStreamingResponse(geminiConfig(config), toGeminiBody(geminiConfig(config), withSystemMessage(config, messages)), onDelta, options)).content || "没有返回内容";
             if (answer === "没有返回内容") onDelta(answer);
+            return answer;
+        } catch (error) {
+            if (isRequestCanceled(error)) throw new Error("请求已取消");
+            throw new Error(readAxiosError(error, "请求失败"));
+        }
+    }
+    if (isSub2ResponsesTextChannel(config)) {
+        try {
+            const answer =
+                (
+                    await requestStreamingResponse(
+                        config,
+                        {
+                            model: config.model,
+                            input: toResponseInput(withSystemMessage(config, messages)),
+                        },
+                        onDelta,
+                        options,
+                    )
+                ).content || "没有返回内容";
+            if (answer === "没有返回内容") onDelta(answer);
+            refreshRemoteUser(config);
             return answer;
         } catch (error) {
             if (isRequestCanceled(error)) throw new Error("请求已取消");

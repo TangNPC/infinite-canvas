@@ -494,14 +494,22 @@ func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {
 }
 
 func normalizeChannelProtocol(protocol string) string {
-	if strings.EqualFold(strings.TrimSpace(protocol), "gemini") {
+	value := strings.ToLower(strings.TrimSpace(protocol))
+	if value == "gemini" {
 		return "gemini"
+	}
+	if value == "sub2" || value == "sub2-chat" {
+		return value
 	}
 	return "openai"
 }
 
 func IsGeminiChannel(channel model.ModelChannel) bool {
 	return normalizeChannelProtocol(channel.Protocol) == "gemini"
+}
+
+func IsResponsesChatChannel(channel model.ModelChannel) bool {
+	return normalizeChannelProtocol(channel.Protocol) == "sub2-chat"
 }
 
 func resolveAdminChannel(index *int, channel model.ModelChannel) (model.ModelChannel, error) {
@@ -639,7 +647,18 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 			"content": "hi",
 		}},
 	})
-	request, err := http.NewRequest(http.MethodPost, BuildModelChannelURL(channel, "/chat/completions"), strings.NewReader(string(body)))
+	path := "/chat/completions"
+	if IsResponsesChatChannel(channel) {
+		path = "/responses"
+		body, _ = json.Marshal(map[string]any{
+			"model": modelName,
+			"input": []map[string]string{{
+				"role":    "user",
+				"content": "hi",
+			}},
+		})
+	}
+	request, err := http.NewRequest(http.MethodPost, BuildModelChannelURL(channel, path), strings.NewReader(string(body)))
 	if err != nil {
 		return "", err
 	}
@@ -655,6 +674,7 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 		return "", readAdminChannelError(responseBody, response.StatusCode, "测试失败")
 	}
 	var payload struct {
+		OutputText string `json:"output_text"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
@@ -662,6 +682,9 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 		} `json:"choices"`
 	}
 	_ = json.Unmarshal(responseBody, &payload)
+	if strings.TrimSpace(payload.OutputText) != "" {
+		return payload.OutputText, nil
+	}
 	if len(payload.Choices) > 0 && strings.TrimSpace(payload.Choices[0].Message.Content) != "" {
 		return payload.Choices[0].Message.Content, nil
 	}

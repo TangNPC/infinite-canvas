@@ -507,6 +507,7 @@ export function AppConfigModal() {
                                                     { label: "OpenAI", value: "openai" },
                                                     { label: "Gemini", value: "gemini" },
                                                     { label: "Sub2 生图", value: "sub2" },
+                                                    { label: "Sub2 对话", value: "sub2-chat" },
                                                 ]}
                                                 onChange={(value) => patchLocalChannelProtocol(channel, value)}
                                             />
