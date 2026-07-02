@@ -1306,7 +1306,50 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
     );
 }
 
-async function requestSub2ImageTask(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams, options: RequestOptions = {}): Promise<GeneratedImage[]> {
+async function requestSub2ImageGeneration(config: AiConfig, prompt: string, params: ImageRequestParams, options: RequestOptions = {}): Promise<GeneratedImage[]> {
+    const sub2Config = sub2ImageConfig(config);
+    const mime = MIME_MAP[params.outputFormat];
+    const body: Record<string, unknown> = {
+        model: sub2Config.model || "gpt-image-2",
+        prompt: withPromptGuard(config, withSystemPrompt(config, prompt)),
+        n: params.n,
+        output_format: params.outputFormat,
+        moderation: params.moderation,
+    };
+    if (params.size) body.size = params.size;
+    if (params.quality && params.quality !== "auto" && !config.codexCli) body.quality = params.quality;
+    if (params.outputFormat !== "png") body.output_compression = params.outputCompression;
+    if (config.responseFormatB64Json) body.response_format = "b64_json";
+
+    return requestAndParseImages(
+        config,
+        "/images/generations",
+        body,
+        params.timeoutSeconds,
+        () =>
+            requestWithTransientRetry(() =>
+                withTimeout(
+                    params.timeoutSeconds,
+                    (signal) =>
+                        fetch("/api/sub2-image-generations", {
+                            method: "POST",
+                            headers: { ...aiHeaders(config, "application/json"), Authorization: `Bearer ${sub2Config.apiKey}` },
+                            body: JSON.stringify({ baseUrl: sub2Config.baseUrl, payload: body }),
+                            signal,
+                        }),
+                    options.signal,
+                ),
+            ),
+        async (response) => {
+            const text = await response.text();
+            const images = parseImageTextPayload(text, mime);
+            return { images, responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "sub2-generation")) };
+        },
+    );
+}
+
+async function requestSub2ImageEdit(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams, maskDataUrl?: string, options: RequestOptions = {}): Promise<GeneratedImage[]> {
+    if (!references.length) throw new ImageRequestError("Sub2 图片编辑需要至少连接一张主图作为参考图");
     const sub2Config = sub2ImageConfig(config);
     const mime = MIME_MAP[params.outputFormat];
     const formData = new FormData();
@@ -1314,17 +1357,19 @@ async function requestSub2ImageTask(config: AiConfig, prompt: string, references
     formData.set("model", sub2Config.model || "gpt-image-2");
     formData.set("prompt", withPromptGuard(config, withSystemPrompt(config, prompt)));
     formData.set("output_format", params.outputFormat);
-    formData.set("count", String(params.n || 1));
-    formData.set("batch_concurrency", String(Math.min(Math.max(params.n || 1, 1), 15)));
     formData.set("timeoutSeconds", String(params.timeoutSeconds));
+    if (params.n > 1) formData.set("n", String(params.n));
     if (params.size) formData.set("size", params.size);
     if (params.quality && params.quality !== "auto" && !config.codexCli) formData.set("quality", params.quality);
+    if (params.outputFormat !== "png") formData.set("output_compression", String(params.outputCompression));
+    if (config.responseFormatB64Json) formData.set("response_format", "b64_json");
     const files = await Promise.all(references.map((image) => referenceImageToFile(image)));
     files.forEach((file) => formData.append("image", file));
+    if (maskDataUrl) formData.set("mask", dataUrlToFile({ id: "mask", name: "mask.png", type: "image/png", dataUrl: maskDataUrl }));
 
     return requestAndParseImages(
         config,
-        "/sub2-image-tasks",
+        "/images/edits",
         summarizeFormData(formData),
         params.timeoutSeconds,
         () =>
@@ -1332,7 +1377,7 @@ async function requestSub2ImageTask(config: AiConfig, prompt: string, references
                 withTimeout(
                     params.timeoutSeconds,
                     (signal) =>
-                        fetch("/api/sub2-image-tasks", {
+                        fetch("/api/sub2-image-edits", {
                             method: "POST",
                             headers: { Authorization: `Bearer ${sub2Config.apiKey}` },
                             body: formData,
@@ -1344,7 +1389,7 @@ async function requestSub2ImageTask(config: AiConfig, prompt: string, references
         async (response) => {
             const text = await response.text();
             const images = parseImageTextPayload(text, mime);
-            return { images, responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "sub2-task")) };
+            return { images, responseBody: stringifyLogPayload(parseJsonPayload(text) || summarizeGeneratedImages(images, "sub2-edit")) };
         },
     );
 }
@@ -1453,8 +1498,9 @@ async function requestAndParseImages(config: AiConfig, endpoint: string, request
 async function requestImages(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: { maskDataUrl?: string; signal?: AbortSignal } = {}): Promise<GeneratedImage[]> {
     const params = createImageRequestParams(config);
     if (isSub2ImageChannel(config)) {
-        if (options.maskDataUrl) throw new ImageRequestError("sub2 /batch-image-tasks 暂不支持蒙版局部编辑，请使用参考图图生图或切换支持 /images/edits mask 的渠道");
-        return requestSub2ImageTask(config, prompt, references, params, options);
+        if (options.maskDataUrl) return requestSub2ImageEdit(config, prompt, references, params, options.maskDataUrl, options);
+        if (references.length) return requestSub2ImageEdit(config, prompt, references, params, undefined, options);
+        return requestSub2ImageGeneration(config, prompt, params, options);
     }
     if (activeLocalProtocol(config) === "gemini") {
         if (options.maskDataUrl) throw new ImageRequestError("Gemini 调用格式暂不支持蒙版编辑");
