@@ -58,8 +58,8 @@ export type AiConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export const OPENAI_BASE_URL = "https://api.openai.com";
 export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
-export const SUB2_IMAGE_BASE_URL = "https://img.94576354.xyz";
-export const SUB2_CHAT_BASE_URL = "https://api.94576354.xyz";
+export const SUB2_IMAGE_BASE_URL = process.env.NEXT_PUBLIC_SUB2_IMAGE_BASE_URL || "";
+export const SUB2_CHAT_BASE_URL = process.env.NEXT_PUBLIC_SUB2_CHAT_BASE_URL || "";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",

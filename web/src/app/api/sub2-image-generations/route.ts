@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 900;
 
-const DEFAULT_BASE_URL = "https://img.94576354.xyz";
+const DEFAULT_BASE_URL = process.env.SUB2_IMAGE_BASE_URL || "";
 
 export async function POST(request: NextRequest) {
     try {
@@ -11,7 +11,8 @@ export async function POST(request: NextRequest) {
         const apiKey = bearerToken(request.headers.get("Authorization"));
         if (!apiKey) return Response.json({ error: { message: "缺少 sub2 API Key" } }, { status: 400 });
 
-        const upstream = await fetch(`${normalizeBaseUrl(body.baseUrl || DEFAULT_BASE_URL)}/images/generations`, {
+        const baseUrl = requireBaseUrl(body.baseUrl || DEFAULT_BASE_URL);
+        const upstream = await fetch(`${normalizeBaseUrl(baseUrl)}/images/generations`, {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${apiKey}`,
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
 function normalizeBaseUrl(value: string) {
     const normalized = value.trim().replace(/\/+$/, "");
     return normalized.toLowerCase().endsWith("/v1") ? normalized : `${normalized}/v1`;
+}
+
+function requireBaseUrl(value: string) {
+    const baseUrl = value.trim();
+    if (!baseUrl) throw new Error("缺少 sub2 图片接口地址，请在渠道配置或 SUB2_IMAGE_BASE_URL 中设置");
+    return baseUrl;
 }
 
 function bearerToken(value: string | null) {

@@ -12,3 +12,20 @@ services:
     ports:
       - "13000:13000"
     restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: infinite-canvas-caddy
+    depends_on:
+      - app
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "13001:13001"
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

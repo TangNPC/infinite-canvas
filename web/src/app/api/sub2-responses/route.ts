@@ -8,7 +8,7 @@ type Sub2ResponsesProxyBody = {
     payload?: Record<string, unknown>;
 };
 
-const DEFAULT_BASE_URL = "https://api.94576354.xyz";
+const DEFAULT_BASE_URL = process.env.SUB2_CHAT_BASE_URL || "";
 
 export async function POST(request: NextRequest) {
     try {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
         if (!apiKey) return Response.json({ error: { message: "缺少 sub2 API Key" } }, { status: 400 });
 
         const body = (await request.json()) as Sub2ResponsesProxyBody;
-        const baseUrl = normalizeBaseUrl(body.baseUrl || DEFAULT_BASE_URL);
+        const baseUrl = normalizeBaseUrl(requireBaseUrl(body.baseUrl || DEFAULT_BASE_URL));
         const upstream = await fetch(`${baseUrl}/responses`, {
             method: "POST",
             headers: {
@@ -44,6 +44,12 @@ export function OPTIONS() {
 function normalizeBaseUrl(value: string) {
     const normalized = value.trim().replace(/\/+$/, "");
     return normalized.toLowerCase().endsWith("/v1") ? normalized : `${normalized}/v1`;
+}
+
+function requireBaseUrl(value: string) {
+    const baseUrl = value.trim();
+    if (!baseUrl) throw new Error("缺少 sub2 对话接口地址，请在渠道配置或 SUB2_CHAT_BASE_URL 中设置");
+    return baseUrl;
 }
 
 function bearerToken(value: string | null) {

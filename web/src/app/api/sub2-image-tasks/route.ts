@@ -34,13 +34,13 @@ type Sub2PollResponse = {
     msg?: string;
 };
 
-const DEFAULT_BASE_URL = "https://img.94576354.xyz";
+const DEFAULT_BASE_URL = process.env.SUB2_IMAGE_BASE_URL || "";
 const MAX_POLL_INTERVAL_MS = 3000;
 
 export async function POST(request: NextRequest) {
     try {
         const inbound = await request.formData();
-        const baseUrl = stringField(inbound, "baseUrl") || DEFAULT_BASE_URL;
+        const baseUrl = requireBaseUrl(stringField(inbound, "baseUrl") || DEFAULT_BASE_URL);
         const apiKey = bearerToken(request.headers.get("Authorization")) || stringField(inbound, "apiKey");
         if (!apiKey) return Response.json({ error: { message: "缺少 sub2 API Key" } }, { status: 400 });
 
@@ -94,6 +94,12 @@ export async function POST(request: NextRequest) {
 
 function normalizeBaseUrl(value: string) {
     return value.trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
+}
+
+function requireBaseUrl(value: string) {
+    const baseUrl = value.trim();
+    if (!baseUrl) throw new Error("缺少 sub2 图片接口地址，请在渠道配置或 SUB2_IMAGE_BASE_URL 中设置");
+    return baseUrl;
 }
 
 function resolveSub2Url(baseUrl: string, value: string) {
