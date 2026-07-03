@@ -1,10 +1,29 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: infinite-canvas-postgres
+    environment:
+      POSTGRES_DB: infinite_canvas
+      POSTGRES_USER: infinite_canvas
+      POSTGRES_PASSWORD: V7kqN4rZp9Lm2Tx8cY6Ws3BjQ5Hd
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infinite_canvas -d infinite_canvas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   app:
     image: infinite-canvas:local
     build:
       context: .
       dockerfile: Dockerfile
     container_name: infinite-canvas
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
     volumes:
@@ -27,5 +46,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres-data:
   caddy-data:
   caddy-config:
